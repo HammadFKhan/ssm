@@ -200,6 +200,164 @@ plt.figure(figsize=(6,6))
 ax = plt.subplot(111)
 lim = abs(xhat_lem).max(axis=0) + 1
 plot_most_likely_dynamics(rslds_lem, xlim=(-lim[0], lim[0]), ylim=(-lim[1], lim[1]), ax=ax)
+plt.plot(xhat_lem[:,0], xhat_lem[:,1], '-k', lw=1)
+
 plt.title("Most Likely Dynamics, Laplace-EM")
 
+plt.show()
+# %%
+def plot_rslds_dynamics_with_trajectories(
+    model, latent_states, data, q_posterior=None, colors=['r', 'g', 'b', 'c', 'm', 'y', 'k'],
+    ax=None, figsize=(6, 6), trajectory_alpha=0.7,
+    plot_state_colors=True):
+    """
+    Plot rSLDS dynamics with neural trajectories overlaid.
+    
+    Args:
+        model: The rSLDS model
+        latent_states: Latent state trajectories (T x D) or list of trajectories
+        data: Original data used for inference
+        q_posterior: Variational posterior from Laplace-EM (if applicable)
+        colors: Colors for different discrete states
+        trajectory_alpha: Transparency of trajectory lines
+        plot_state_colors: Whether to color trajectories by their discrete state
+    """
+    K = model.K  # Number of discrete states
+    assert model.D == 2, "This function only works for 2D latent states"
+    
+    # Adjust grid limits to match trajectory scale
+    x_min, x_max = latent_states[:, 0].min(), latent_states[:, 0].max()
+    y_min, y_max = latent_states[:, 1].min(), latent_states[:, 1].max()
+    
+    # Add margins to the grid limits
+    margin = 0.001  # 50% margin
+    x_range = x_max - x_min
+    y_range = y_max - y_min
+    xlim = (x_min - margin * x_range, x_max + margin * x_range)
+    ylim = (y_min - margin * y_range, y_max + margin * y_range)
+    
+    # Create a grid for the vector field
+    nxpts = 30
+    nypts = 30
+    x = np.linspace(xlim[0], xlim[1], nxpts)
+    y = np.linspace(ylim[0], ylim[1], nypts)
+    X, Y = np.meshgrid(x, y)
+    xy = np.column_stack((X.ravel(), Y.ravel()))
+    
+    # Get the probability of each state at each xy location
+    log_Ps = model.transitions.log_transition_matrices(
+        xy, np.zeros((nxpts * nypts, 0)), np.ones_like(xy, dtype=bool), None)
+    z = np.argmax(log_Ps[:, 0, :], axis=-1)  # Assign each grid point to a state
+    z = np.concatenate([[z[0]], z]) 
+    if ax is None:
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111)
+
+    # Plot the vector field for each discrete state
+    for k, (A, b) in enumerate(zip(model.dynamics.As, model.dynamics.bs)):
+        dxydt_m = xy.dot(A.T) + b - xy
+
+        zk = z == k
+        if zk.sum() > 0:
+            ax.quiver(xy[zk, 0], xy[zk, 1],
+                      dxydt_m[zk, 0], dxydt_m[zk, 1],
+                      color=colors[k % len(colors)], alpha=0.8)
+
+    # Add the trajectories
+    if isinstance(latent_states, list):
+        # Multiple trajectories
+        for traj_idx, traj in enumerate(latent_states):
+            if traj.shape[1] > 2:
+                traj = traj[:, :2]  # Use only first two dimensions
+            
+            if plot_state_colors:
+                if q_posterior is not None:
+                    traj_z = model.most_likely_states(traj, data[traj_idx])
+                else:
+                    traj_z = model.most_likely_states(data[traj_idx])
+                
+                for k in range(K):
+                    state_mask = traj_z == k
+                    if not np.any(state_mask):
+                        continue
+                    
+                    state_changes = np.diff(np.concatenate([[0], state_mask.astype(int), [0]]))
+                    starts = np.where(state_changes == 1)[0]
+                    ends = np.where(state_changes == -1)[0]
+                    
+                    for start, end in zip(starts, ends):
+                        ax.plot(traj[start:end, 0], traj[start:end, 1],
+                                '-', color=colors[k % len(colors)],
+                                alpha=trajectory_alpha, linewidth=1.5)
+            else:
+                ax.plot(traj[:, 0], traj[:, 1], '-', color='k',
+                        alpha=trajectory_alpha, linewidth=1.5)
+    else:
+        # Single trajectory
+        if latent_states.shape[1] > 2:
+            latent_states = latent_states[:, :2]
+        
+        if plot_state_colors:
+            if q_posterior is not None:
+                states = model.most_likely_states(latent_states, data)
+            else:
+                states = model.most_likely_states(data)
+            
+            for k in range(K):
+                state_mask = states == k
+                if not np.any(state_mask):
+                    continue
+                
+                state_changes = np.diff(np.concatenate([[0], state_mask.astype(int), [0]]))
+                starts = np.where(state_changes == 1)[0]
+                ends = np.where(state_changes == -1)[0]
+                
+                for start, end in zip(starts, ends):
+                    ax.plot(latent_states[start:end, 0], latent_states[start:end, 1],
+                            '-', color=colors[k % len(colors)],
+                            alpha=trajectory_alpha, linewidth=1.5)
+        else:
+            ax.plot(latent_states[:, 0], latent_states[:, 1], '-', color='k',
+                    alpha=trajectory_alpha, linewidth=1.5)
+
+    ax.set_xlabel('$x_1$')
+    ax.set_ylabel('$x_2$')
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+
+    plt.tight_layout()
+
+
+# Plot with both continuous states and data
+plot_rslds_dynamics_with_trajectories(
+    rslds_lem,                  # model
+    xhat_lem,               # latent states from posterior
+    y,        # original data
+    q_posterior=q_lem,      # posterior object
+)
+plt.title("rSLDS Dynamics with Neural Trajectories")
+plt.show()
+# %%
+# Plot the dynamics vector field 
+
+from ssm.plots import plot_dynamics_2d
+q = plot_dynamics_2d(A, 
+                     bias_vector=b,
+                     mins=states.min(axis=0),
+                     maxs=states.max(axis=0),
+                     color=colors[0])
+
+plt.plot(states[:,0], states[:,1], '-k', lw=3)
+#%%
+sim_states, sim_latent, sim_observations = slds.sample(10000)
+plt.figure(figsize=(6,6))
+ax = plt.subplot(111)
+lim = abs(sim_latent).max(axis=0) + 1
+plot_most_likely_dynamics(slds, xlim=(-lim[0], lim[0]), ylim=(-lim[1], lim[1]), ax=ax)
+plt.plot(sim_latent[:,0], sim_latent[:,1], '-k', lw=1)
+
+plt.title("Most Likely Dynamics, Laplace-EM")
+#%%
+plt.figure()
+plt.plot(y)
 plt.show()

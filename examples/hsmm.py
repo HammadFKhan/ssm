@@ -2,7 +2,7 @@
 Hidden Semi-Markov Model (HSMM)
 ===============================
 """
-
+# %%
 import autograd.numpy as np
 import autograd.numpy.random as npr
 from scipy.stats import nbinom
@@ -29,11 +29,11 @@ N_em_iters = 100
 
 print("Fitting Gaussian HSMM with EM")
 hsmm = ssm.HSMM(K, D, observations="gaussian")
-hsmm_em_lls = hsmm.fit(y, method="em", num_iters=N_em_iters)
+hsmm_em_lls = hsmm.fit(y, method="em")
 
 print("Fitting Gaussian HMM with EM")
 hmm = ssm.HMM(K, D, observations="gaussian")
-hmm_em_lls = hmm.fit(y, method="em", num_iters=N_em_iters)
+hmm_em_lls = hmm.fit(y, method="em")
 
 # Plot log likelihoods (fit model is typically better)
 plt.figure()
@@ -52,8 +52,8 @@ print("Fit HMM: ", hmm.log_likelihood(y_test))
 hsmm.permute(find_permutation(z, hsmm.most_likely_states(y)))
 hsmm_z = hsmm.most_likely_states(y)
 hmm.permute(find_permutation(z, hmm.most_likely_states(y)))
-hmm_z = hsmm.most_likely_states(y)
-
+hmm_z = hmm.most_likely_states(y)
+#%%
 
 # Plot the true and inferred discrete states
 plt.figure(figsize=(8, 6))
@@ -78,10 +78,10 @@ plt.xlabel("time")
 
 plt.tight_layout()
 
-# Plot the true and inferred duration distributions
+#%% Plot the true and inferred duration distributions
 states, durations = rle(z)
 inf_states, inf_durations = rle(hsmm_z)
-hmm_inf_states, hmm_inf_durations = rle(hsmm_z)
+hmm_inf_states, hmm_inf_durations = rle(hmm_z)
 max_duration = max(np.max(durations), np.max(inf_durations), np.max(hmm_inf_durations))
 dd = np.arange(max_duration, step=1)
 
@@ -116,3 +116,5 @@ for k in range(K):
 plt.tight_layout()
 
 plt.show()
+
+# %%
