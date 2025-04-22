@@ -302,7 +302,7 @@ def simulate_enhanced_spike_trains(n_states=3, n_neurons=50, repetitions=5,
 # Example usage with your parameters
 n_states = 3
 n_neurons = 100
-repetitions = 10  # Generate 5 repetitions of the state sequence
+repetitions = 25  # Generate 5 repetitions of the state sequence
 base_firing_rates = [5, 60, 15, 30, 25]  # Your specified rates
 
 
@@ -353,7 +353,7 @@ print(f"Total duration: {len(true_states)} time bins")
 
 # 2. Bin the data into 20ms bins
 n_timebins = len(true_states)
-bin_size = 1
+bin_size = 3
 n_bins = n_timebins // bin_size
 binned_spike_counts = np.zeros((n_bins, n_neurons))
 binned_true_states = np.zeros(n_bins, dtype=int)
@@ -365,7 +365,7 @@ assert len(binned_spike_counts) == len(binned_true_states)
 smoothed_spike_counts = np.zeros_like(binned_spike_counts)
 # Assuming spike_counts has shape (n_timebins, n_neurons)
 # Choose sigma (kernel width) based on your time bin size
-sigma = 25 # Start with 3 time bins width, adjust based on your data
+sigma = 3 # Start with 3 time bins width, adjust based on your data
 
 # Apply smoothing to each neuron's time series
 smoothed_spikes = np.zeros_like(binned_spike_counts, dtype=float)
@@ -740,8 +740,9 @@ print(hsmm_ll)
 print(hmm_ll)
 
 #%% Plot the true and inferred duration distributions
-true_state_seq, durations = rle(true_states)
-inf_states, inf_durations = rle(states)
+n_states = 3
+true_state_seq, durations = rle(rslds_states)
+inf_states, inf_durations = rle(rslds_states)
 max_duration = max(np.max(durations), np.max(inf_durations))
 dd = np.arange(max_duration, step=1)
 
@@ -752,7 +753,7 @@ for k in range(n_states):
     plt.hist(durations[true_state_seq == k] - 1, dd, density=True)
     if k == n_states - 1:
         plt.legend(loc="lower right")
-    plt.title("State {} (N={})".format(k+1, np.sum(states == k)))
+    plt.title("State {} (N={})".format(k+1, np.sum(rslds_states == k)))
 
     # Plot the durations of the inferred states
     plt.subplot(3, n_states, n_states+k+1)
@@ -1103,7 +1104,7 @@ print(f"HSMM ARI: {hsmm_ari:.3f}, HMM ARI: {hmm_ari:.3f}, rSLDS ARI: {rslds_ari:
 # %%
 from ssm.plots import plot_most_likely_dynamics
 
-sim_states, sim_latent, sim_observations = slds.sample(1000, with_noise=0)
+sim_states, sim_latent, sim_observations = slds.sample(4000, with_noise=0)
 plt.figure(figsize=(6,6))
 ax = plt.subplot(111)
 lim = abs(sim_latent).max(axis=0) + 1
@@ -1119,8 +1120,8 @@ ax1 = plt.subplot(211)  # First subplot (top)
 ax2 = plt.subplot(212)  # Second subplot (bottom)
 inferred_latent_dynamics =  np.zeros_like(q_lem.mean_continuous_states[0], dtype='int32')
 for n in range(q_lem.mean_continuous_states[0].shape[1]):
-    inferred_latent_dynamics[:, n] = gaussian_filter1d(q_lem.mean_continuous_states[0][:, n], 20)
-
+    inferred_latent_dynamics[:, n] = gaussian_filter1d(q_lem.mean_continuous_states[0][:, n]*100, 10)
+inferred_latent_dynamics = inferred_latent_dynamics/100
 # Plot data on each subplot
 ax1.plot(inferred_latent_dynamics, '-k', lw=1)
 ax2.plot(latent_dynamics[:, :2], '-r', lw=1)
@@ -1134,7 +1135,7 @@ plt.tight_layout()  # Improves spacing
 plt.show()
 plt.figure(figsize=(6,6))
 ax = plt.subplot(111)
-q_lem_scaled = inferred_latent_dynamics
+q_lem_scaled = inferred_latent_dynamics[:1200]
 lim = abs(q_lem_scaled).max(axis=0)+1
 plot_most_likely_dynamics(slds, xlim=(-lim[0], lim[0]), ylim=(-lim[1], lim[1]), ax=ax)
 plt.plot(q_lem_scaled[:,0], q_lem_scaled[:,1], '-k', lw=1)

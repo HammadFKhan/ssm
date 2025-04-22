@@ -117,7 +117,7 @@ def plot_most_likely_dynamics(model,
     color_names = ["windows blue", "red", "amber", "faded green"]
     colors = sns.xkcd_palette(color_names)
     K = model.K
-    assert model.D == 2
+    #assert model.D == 2
     x = np.linspace(*xlim, nxpts)
     y = np.linspace(*ylim, nypts)
     X, Y = np.meshgrid(x, y)
