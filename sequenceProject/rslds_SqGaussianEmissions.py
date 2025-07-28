@@ -4,7 +4,8 @@ import autograd.numpy.random as npr
 from scipy.stats import nbinom
 import matplotlib.pyplot as plt
 from ssm.util import rle, find_permutation
-
+from matplotlib.colors import ListedColormap
+import seaborn as sns
 from ssm import SLDS
 
 from scipy.ndimage import gaussian_filter1d
@@ -12,13 +13,12 @@ from tqdm import tqdm  # Import tqdm for loading bar
 from scipy.io import savemat
 from scipy.io import loadmat
 
-mat = loadmat(r"C:\Users\khan332\Documents\GitHub\ssm\sleepStudy\sleepData.mat",squeeze_me=True)
-DeltaFoverF = mat['Fnorm'].T
-sleepStates = mat['SleepStates']
+mat = loadmat(r"C:\Users\khan332\Documents\GitHub\ssm\sequenceProject\neuralData_2d.mat",squeeze_me=True)
+DeltaFoverF = mat['neuralData_2d'].T
 print(f"Generated data shape: {DeltaFoverF.shape}")
 
 # Parameters
-sigma = 4  # Smoothing parameter (in bins)
+sigma = 5  # Smoothing parameter (in bins)
 bin_size_ms = 1  # Bin size in milliseconds
 
 def compute_binned_spike_data(spike_counts, sigma, bin_size_ms):
@@ -87,42 +87,6 @@ sort_idx[:len(pos_idx)] = pos_idx[np.argsort(-pc_weights[0, pos_idx])]
 # Sort negative PC1 neurons by increasing weight (most negative first)
 sort_idx[len(pos_idx):] = neg_idx[np.argsort(pc_weights[0, neg_idx])]
 
-#%% Show Plots by PC loading weights
-
-from hammad.Fig_SimSpike import plot_spikes_pca, plot_state_transitions
-
-plot_spikes_pca(binned_DeltaFoverF,pca,latent_dynamics)
-# %%
-# Create publication-quality figure with better dimensions
-fig, axs = plt.subplots(1, 1, figsize=(6, 8), sharex=True)
-
-
-# Plot binned spike counts
-im1 = axs.imshow(np.transpose(DeltaFoverF), 
-                   aspect='auto', 
-                   cmap='plasma',  # Scientific colormap that's colorblind-friendly
-                   interpolation='none',
-                   )  # Preserves exact values
-axs.set_title("Calcium Data", fontsize=14, fontweight='bold')
-axs.set_ylabel("Neurons", fontsize=12)
-
-# Add gridlines to help identify neuron positions
-axs.grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
-
-# Custom colorbar with proper positioning
-cbar1 = fig.colorbar(im1, ax=axs, fraction=0.046, pad=0.04)
-cbar1.set_label("Fluorescence Val", fontsize=12)
-cbar1.ax.tick_params(labelsize=10)
-
-# Adjust spacing between subplots
-plt.tight_layout()
-
-
-# Optional: Add a super title
-fig.suptitle("Neural Population Activity", fontsize=16, y=1.02)
-filename = "Inferred_Spike_state.pdf"
-plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
-plt.show()
 #%%
 # 3. rSlds initialization
 num_states = 5

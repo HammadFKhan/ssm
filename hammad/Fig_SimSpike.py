@@ -11,10 +11,6 @@ def plot_spikes_pca(binned_spike_counts,pca,latent_dynamics,filename=None):
     plt.rcParams['pdf.fonttype'] = 42
     plt.rcParams['ps.fonttype'] = 42
     from scipy.ndimage import gaussian_filter1d
-    latent_dynamics_smoothed = np.zeros_like(latent_dynamics, dtype=float)
-    for n in range(latent_dynamics.shape[1]):
-        latent_dynamics_smoothed[:, n] = gaussian_filter1d(latent_dynamics[:, n], 1)
-    latent_dynamics = latent_dynamics_smoothed  
     # Get PC weights (loadings) for each neuron
     # In sklearn, components_ is of shape (n_components, n_features)
     pc_weights = pca.components_  # Each row is a PC, each column is a neuron
@@ -44,12 +40,12 @@ def plot_spikes_pca(binned_spike_counts,pca,latent_dynamics,filename=None):
     ax_spikes = plt.subplot(gs[0, 0])
     im1 = ax_spikes.imshow(np.transpose(binned_spike_counts[:, sort_idx]), 
                         aspect='auto', 
-                        cmap='viridis',
+                        cmap='plasma',
                         interpolation='none')
     ax_spikes.set_title("Spiking Activity", fontsize=14, fontweight='bold')
     ax_spikes.set_ylabel("Neurons (sorted by PC weights)", fontsize=12)
     ax_spikes.set_xticklabels([])
-
+    ax_spikes.set_xlim(0,1500)
     # Colorbar - directly attached to spike plot
     ax_cbar = plt.subplot(gs[0, 1])
     cbar = plt.colorbar(im1, cax=ax_cbar)
@@ -100,6 +96,7 @@ def plot_spikes_pca(binned_spike_counts,pca,latent_dynamics,filename=None):
     ax_latent.grid(True, alpha=0.3)
     ax_latent.spines['top'].set_visible(False)
     ax_latent.spines['right'].set_visible(False)
+    ax_latent.set_xlim(0,1500)
 
     # Variance explained panel aligned with PC histograms
     ax_var = plt.subplot(gs[1, 3:])
