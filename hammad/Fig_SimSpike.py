@@ -36,16 +36,24 @@ def plot_spikes_pca(binned_spike_counts,pca,latent_dynamics,filename=None):
                         width_ratios=[7, 0.2, 0.6, 0.6, 0.6, 0.6],  # Adjusted width ratios
                         wspace=0.15, hspace=0.25)  # Increased spacing between rows
 
+    # Assume binned_spike_counts and sort_idx are already defined
+    # Calculate lower and upper color axis limits using percentiles
+    vmin = np.percentile(binned_spike_counts, 0.01)
+    vmax = np.percentile(binned_spike_counts, 99)
+
     # Main spike data heatmap
     ax_spikes = plt.subplot(gs[0, 0])
     im1 = ax_spikes.imshow(np.transpose(binned_spike_counts[:, sort_idx]), 
                         aspect='auto', 
                         cmap='plasma',
-                        interpolation='none')
+                        interpolation='none',
+                        vmin=vmin,     # lower limit
+                        vmax=vmax      # upper limit
+                        )
     ax_spikes.set_title("Spiking Activity", fontsize=14, fontweight='bold')
     ax_spikes.set_ylabel("Neurons (sorted by PC weights)", fontsize=12)
     ax_spikes.set_xticklabels([])
-    ax_spikes.set_xlim(0,1500)
+    ax_spikes.set_xlim(0,3000)
     # Colorbar - directly attached to spike plot
     ax_cbar = plt.subplot(gs[0, 1])
     cbar = plt.colorbar(im1, cax=ax_cbar)
@@ -96,7 +104,7 @@ def plot_spikes_pca(binned_spike_counts,pca,latent_dynamics,filename=None):
     ax_latent.grid(True, alpha=0.3)
     ax_latent.spines['top'].set_visible(False)
     ax_latent.spines['right'].set_visible(False)
-    ax_latent.set_xlim(0,1500)
+    ax_latent.set_xlim(0,3000)
 
     # Variance explained panel aligned with PC histograms
     ax_var = plt.subplot(gs[1, 3:])

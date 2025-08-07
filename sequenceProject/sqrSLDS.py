@@ -1,0 +1,179 @@
+#%% 
+# Load in the warped structure that we have. Format it into the way we want to run the rslds pipeline through it. 
+import autograd.numpy as np
+import autograd.numpy.random as npr
+from scipy.stats import nbinom
+import matplotlib.pyplot as plt
+from ssm.util import rle, find_permutation
+
+from ssm import SLDS
+
+from scipy.ndimage import gaussian_filter1d
+from tqdm import tqdm  # Import tqdm for loading bar
+from scipy.io import savemat
+from sklearn.metrics import adjusted_rand_score
+npr.seed(0)
+import h5py
+#%%
+
+
+mat_file_path = r"D:\SequenceProject\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
+
+with h5py.File(mat_file_path, 'r') as f:
+    # Access the 'warpedSpks' dataset (the MATLAB struct)
+    warpedSpks = f['warpedSpks']
+    print(f.keys())
+    
+    # Typically, the struct array contains references
+    # Get the first struct in the array (adjust the index for your case)
+    struct_ref = 'warpedSpks' # or [0] if 1D
+    
+    # Dereference to get the struct group
+    struct = f[struct_ref]
+    
+    print("Fields in the struct:")
+    print(list(struct.keys()))  # Should list all fields, including 'warpedSpikes'
+    
+    # Access the 'warpedSpikes' field
+    warp_spk = struct['warpSpikes'][:]
+    
+    # Dereference again to get the actual 3D array data
+    #print(f"Shape of warpedSpikes array: {warpedSpikes_data.shape}")
+    # Now, warpedSpikes_data is a NumPy array with your 3D data
+
+# Load in warp data and wrangle it into what we need it to be
+#warp_spk = np.load(r"D:\SequenceProject\WarpedSpikes\DLS\Day9_DLS_warpedSpks_rslds.npy")
+#warp_spk = np.load(r"D:\SequenceProject\WarpedSpikes\M1\Day6_M1_warpedSpks_rslds.npy")
+
+fSave = 'Figures\Day6M1.pdf'
+warp_spk = np.transpose(warp_spk, (3,2,1,0))
+[n_trials,n_time,n_neurons,nPulls] = warp_spk.shape
+#%%
+warp_spk_ref = warp_spk[:,:,:,2]
+spike_data = warp_spk_ref.reshape(n_time*n_trials,n_neurons)
+#spike_data = np.load(r"D:\SequenceProject\WarpedSpikes\M1\Day6_rslds_test.npy")
+
+print(spike_data.shape)
+# Transpose data here
+# original data should be neuronsxtime
+# Check the shape of the loaded data (should now be time x neurons)
+print(f"Generated data shape: {spike_data.shape}")
+
+from motorCortexLever.spike_utilities import compute_binned_spike_data
+# Parameters
+sigma = 5  # Smoothing parameter (in bins)
+bin_size_ms = 20  # Bin size in milliseconds
+# Compute firing rates - make sure binned_spike_data is shape (neurons, time)
+binned_spike_data = compute_binned_spike_data(spike_data, sigma, bin_size_ms)
+
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
+# Choose number of components for latent space (2-3 is good for visualization)
+n_components = 10
+
+# Fit PCA to the spike count data
+scaler = StandardScaler(with_std=False)
+smoothed_spikes_standardized = scaler.fit_transform(binned_spike_data)
+
+pca = PCA(n_components=n_components)
+latent_dynamics = pca.fit_transform(smoothed_spikes_standardized)
+
+# Get PC weights (loadings) for each neuron
+# In sklearn, components_ is of shape (n_components, n_features)
+pc_weights = pca.components_  # Each row is a PC, each column is a neuron
+
+# Create a sorting index based on PC weights
+# Sort neurons primarily by their PC1 weights, then PC2, then PC3
+# First, let's group by sign of PC1
+pc1_positive = pc_weights[0] > 0
+pc1_negative = ~pc1_positive
+
+# Within each group, sort by magnitude of PC1 weight
+sort_idx = np.zeros(pc_weights.shape[1], dtype=int)
+pos_idx = np.where(pc1_positive)[0]
+neg_idx = np.where(pc1_negative)[0]
+
+# Sort positive PC1 neurons by decreasing weight
+sort_idx[:len(pos_idx)] = pos_idx[np.argsort(-pc_weights[0, pos_idx])]
+# Sort negative PC1 neurons by increasing weight (most negative first)
+sort_idx[len(pos_idx):] = neg_idx[np.argsort(pc_weights[0, neg_idx])]
+
+#%% Show Plots by PC loading weights
+
+from hammad.Fig_SimSpike import plot_spikes_pca, plot_state_transitions
+
+plot_spikes_pca(binned_spike_data,pca,latent_dynamics)
+#%%
+
+# 3. rSlds initialization
+num_states = 3
+obs_dim = binned_spike_data.shape[1]  # Get 3 from PCA components
+latent_dim = 3
+# Create the model and initialize its parameters
+
+slds = SLDS(obs_dim, num_states, latent_dim, emissions="poisson_orthog", transitions="recurrent",emission_kwargs=dict(link="softplus"))
+binned_spike_data = binned_spike_data.astype(np.int32)
+assert binned_spike_data.dtype == int
+slds.initialize(binned_spike_data)
+# Fit the model using Laplace-EM with a structured variational posterior
+q_lem_elbos, q_lem = slds.fit(binned_spike_data, method="laplace_em",
+                               variational_posterior="structured_meanfield",
+                               num_iters=50,initialize=False)
+
+# Get the posterior mean of the continuous states
+q_lem_x = q_lem.mean_continuous_states[0]
+
+# Find the permutation that matches the true and inferred states
+rslds_states = slds.most_likely_states(q_lem_x, binned_spike_data)
+
+# Smooth the data under the variational posterior
+q_lem_y = slds.smooth(q_lem_x, binned_spike_data)
+# Plot ELBO of the model
+plt.figure()
+plt.plot(q_lem_elbos[1:], label="Laplace-EM")
+
+plt.legend(loc="lower right")
+# %%
+import seaborn as sns
+from matplotlib.colors import ListedColormap
+import matplotlib.pyplot as plt
+plt.rcParams['pdf.fonttype'] = 42
+plt.rcParams['ps.fonttype'] = 42
+# Setup
+num_timepoints_per_trial = 250
+numPC_show = 6
+colors = sns.color_palette("viridis", numPC_show)
+state_cmap = ListedColormap(colors)
+num_total_timepoints, _ = latent_dynamics.shape
+num_trials = num_total_timepoints // num_timepoints_per_trial
+
+# Prepare subplots: numPC_show rows, 2 columns
+fig, axs = plt.subplots(numPC_show, 2, figsize=(12, 2 * numPC_show), sharex=True)
+comp_combine = []
+for comp in range(numPC_show):
+    comp_all_time = latent_dynamics[:, comp]
+    comp_by_trial = comp_all_time[:num_trials * num_timepoints_per_trial].reshape(num_trials, num_timepoints_per_trial)
+    x = np.linspace(-3.5, 1.5, num_timepoints_per_trial)
+    comp_combine.append(comp_by_trial) 
+    # First column: Overlay all trials in faint color, then the mean in black
+    for trial in range(num_trials):
+        axs[comp, 0].plot(x, comp_by_trial[trial, :], alpha=0.25, color=colors[comp])
+    axs[comp, 0].plot(x, comp_by_trial.mean(0), alpha=1, color='black', linewidth=2)
+    axs[comp, 0].set_ylabel(f'Latent {comp+1}', fontsize=12)
+    if comp == numPC_show - 1:
+        axs[comp, 0].set_xlabel('Time', fontsize=12)
+    axs[comp, 0].set_title('All Trials + Mean')
+    
+    # Second column: Only mean
+    axs[comp, 1].plot(x, comp_by_trial.mean(0), alpha=1, color='black', linewidth=2)
+    if comp == numPC_show - 1:
+        axs[comp, 1].set_xlabel('Time', fontsize=12)
+    axs[comp, 1].set_title('Mean Only')
+
+filename = fSave
+plt.tight_layout()
+plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+print(f"Figure saved as {filename}")
+
+# %%
