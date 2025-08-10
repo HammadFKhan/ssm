@@ -289,3 +289,135 @@ plt.plot(q_lem_scaled[:,0], q_lem_scaled[:,1], '-k', lw=1)
 
 plt.title("Most Likely Dynamics, Laplace-EM")
 # %%
+# Create publication-quality figure with better dimensions
+fig, axs = plt.subplots(2, 1, figsize=(6, 8), sharex=True)
+
+
+# Plot binned spike counts
+im1 = axs[0].imshow(np.transpose(binned_spike_data), 
+                   aspect='auto', 
+                   cmap='plasma',  # Scientific colormap that's colorblind-friendly
+                   interpolation='none',
+                   vmin = 0, vmax = 8)  # Preserves exact values
+axs[0].set_title("Spike Data", fontsize=14, fontweight='bold')
+axs[0].set_ylabel("Neurons", fontsize=12)
+
+# Add gridlines to help identify neuron positions
+axs[0].grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
+
+# Custom colorbar with proper positioning
+cbar1 = fig.colorbar(im1, ax=axs[0], fraction=0.046, pad=0.04)
+cbar1.set_label("Spike Count", fontsize=12)
+cbar1.ax.tick_params(labelsize=10)
+
+# Plot smoothed spikes with different colormap for visual distinction
+im2 = axs[1].imshow(np.transpose(q_lem_y), 
+                   aspect='auto', 
+                   cmap='plasma',  # Different colormap to distinguish from raw data
+                   interpolation='none', vmin = 0, vmax = 8)
+axs[1].set_title("Inferred Spike Counts", fontsize=14, fontweight='bold')
+axs[1].set_xlabel("Time Bins", fontsize=12)
+axs[1].set_ylabel("Neurons", fontsize=12)
+
+# Add gridlines
+axs[1].grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
+axs[1].set_xlim(0,5500)
+# Custom colorbar for smooth data
+cbar2 = fig.colorbar(im2, ax=axs[1], fraction=0.046, pad=0.04)
+cbar2.set_label("Inferred Spike Count", fontsize=12)
+cbar2.ax.tick_params(labelsize=10)
+
+# Add proper tick formatting for both axes
+for ax in axs:
+    ax.tick_params(axis='both', which='major', labelsize=10)
+    ax.set_yticks(np.arange(0, np.transpose(binned_spike_data).shape[0], 5))
+    ax.set_yticklabels([f"{i}" for i in range(0, np.transpose(binned_spike_data).shape[0], 5)])
+
+# Adjust spacing between subplots
+plt.tight_layout()
+
+
+# Optional: Add a super title
+fig.suptitle("Neural Population Activity", fontsize=16, y=1.02)
+filename = "Inferred_Spike_state.pdf"
+plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+plt.show()
+
+# %%
+# Assuming spike_data is your 2D array with shape (time_total, neurons)
+def make_trials(neural_data,trial_time):
+    time_total, n_neurons = neural_data.shape
+    spike_data_trial = np.zeros_like(neural_data)
+    # Calculate number of trials automatically
+    n_trials = time_total // trial_time
+
+    # Check if the time dimension is cleanly divisible by 600
+    if time_total % trial_time != 0:
+        # Truncate data to make it cleanly divisible
+        spike_data_trial = neural_data[:n_trials*trial_time, :]
+        print(f"Warning: Truncated {time_total - n_trials*trial_time} time points")
+
+    # First reshape to (n_trials, 600, n_neurons)
+    reshaped = spike_data_trial.reshape(n_trials, trial_time, n_neurons)
+
+    # Then transpose to get (600, n_neurons, n_trials)
+    spike_data_trials = np.transpose(reshaped, (1, 2, 0))
+
+    # Now take the mean across trials (axis=2, not axis=3 as Python is 0-indexed)
+    trial_average = np.mean(spike_data_trials, axis=2)
+
+    return spike_data_trials,trial_average
+
+trial_time = 250
+_,spike_trial_average = make_trials(binned_spike_data,trial_time)
+_,inferred_spike_average = make_trials(inferred_spike_dynamics,trial_time)
+_,latent_average = make_trials(inferred_latent_dynamics,trial_time)
+# Create publication-quality figure with better dimensions
+fig, axs = plt.subplots(2, 1, figsize=(6, 8), sharex=True)
+
+
+# Plot binned spike counts
+im1 = axs[0].imshow(np.transpose(spike_trial_average), 
+                   aspect='auto', 
+                   cmap='plasma',  # Scientific colormap that's colorblind-friendly
+                   interpolation='none',
+                   vmin = 0, vmax = 8)  # Preserves exact values
+axs[0].set_title("Actual Trial-averaged Spike", fontsize=14, fontweight='bold')
+axs[0].set_ylabel("Neurons", fontsize=12)
+
+# Add gridlines to help identify neuron positions
+axs[0].grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
+
+# Custom colorbar with proper positioning
+cbar1 = fig.colorbar(im1, ax=axs[0], fraction=0.046, pad=0.04)
+cbar1.set_label("Spike Count", fontsize=12)
+cbar1.ax.tick_params(labelsize=10)
+
+# Plot smoothed spikes with different colormap for visual distinction
+im2 = axs[1].imshow(np.transpose(inferred_spike_average), 
+                   aspect='auto', 
+                   cmap='plasma',  # Different colormap to distinguish from raw data
+                   interpolation='none', vmin = 0, vmax = 8)
+axs[1].set_title("Inferred Trial-averaged Spike", fontsize=14, fontweight='bold')
+axs[1].set_xlabel("Time Bins", fontsize=12)
+axs[1].set_ylabel("Neurons", fontsize=12)
+
+# Add gridlines
+axs[1].grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
+# Custom colorbar for smooth data
+cbar2 = fig.colorbar(im2, ax=axs[1], fraction=0.046, pad=0.04)
+cbar2.set_label("Inferred Spike Count", fontsize=12)
+cbar2.ax.tick_params(labelsize=10)
+
+# Add proper tick formatting for both axes
+for ax in axs:
+    ax.tick_params(axis='both', which='major', labelsize=10)
+    ax.set_yticks(np.arange(0, np.transpose(binned_spike_data).shape[0], 5))
+    ax.set_yticklabels([f"{i}" for i in range(0, np.transpose(binned_spike_data).shape[0], 5)])
+
+# Adjust spacing between subplots
+plt.tight_layout()
+filename = "TrialAveraged_Spike_state.pdf"
+#plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+plt.show()
+# %%
