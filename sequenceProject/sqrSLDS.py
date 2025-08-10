@@ -134,6 +134,56 @@ plt.figure()
 plt.plot(q_lem_elbos[1:], label="Laplace-EM")
 
 plt.legend(loc="lower right")
+#%%
+from matplotlib.colors import ListedColormap
+import seaborn as sns
+
+# Create figure
+fig, axs = plt.subplots(1, 1, figsize=(8, 2), sharex=True)
+colors = sns.color_palette("viridis", num_states)
+state_cmap = ListedColormap(colors)
+# Plot inferred states with better colormap and colorbar
+im2 = axs.imshow(rslds_states[None, :]+1, aspect="auto", cmap=state_cmap, 
+                        vmin=1, vmax=num_states, interpolation='none',
+                        extent=[0, len(rslds_states), -0.5, 0.5])
+
+
+axs.set_ylabel("RSLDS Inferred $z$", fontsize=12)
+axs.yaxis.set_ticks([])  # Remove y-axis ticks
+cbar2 = fig.colorbar(im2, ax=axs, orientation="vertical", fraction=0.046, pad=0.04)
+cbar2.set_label("State", fontsize=10)
+cbar2.ax.tick_params(labelsize=10)
+
+
+# Add shared x-axis label
+axs.set_xlabel("Time Bins", fontsize=12)
+axs.set_xlim(0,5000)
+# Adjust layout for better spacing
+plt.tight_layout()
+filename = "rslds_Discretestate.pdf"
+plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+# Show the plot
+plt.show()
+
+# %%
+def plot_trajectory(z, x, ax=None, ls="-"):
+    zcps = np.concatenate(([0], np.where(np.diff(z))[0] + 1, [z.size]))
+    if ax is None:
+        fig = plt.figure(figsize=(4, 4))
+        ax = fig.gca()
+    for start, stop in zip(zcps[:-1], zcps[1:]):
+        ax.plot(x[start:stop + 1, 0],
+                x[start:stop + 1, 1],
+                lw=1, ls=ls,
+                color=colors[z[start] % len(colors)],
+                alpha=1.0)
+
+    return ax
+
+ax3 = plt.subplot(111)
+plot_trajectory(rslds_states, q_lem_y, ax=ax3)
+plt.title("Inferred, Laplace-EM")
+plt.tight_layout()
 # %%
 import seaborn as sns
 from matplotlib.colors import ListedColormap
@@ -176,4 +226,66 @@ plt.tight_layout()
 plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
 print(f"Figure saved as {filename}")
 
+# %%
+# %% Plot out inferred latent dynamics
+plt.figure(figsize=(6, 6))
+
+# Create two subplots (2 rows, 1 column)
+ax1 = plt.subplot(211)  # First subplot (top)
+ax2 = plt.subplot(212)  # Second subplot (bottom)
+inferred_latent_dynamics =  np.zeros_like(q_lem.mean_continuous_states[0], dtype='int32')
+for n in range(q_lem.mean_continuous_states[0].shape[1]):
+        inferred_latent_dynamics[:, n] = gaussian_filter1d(q_lem.mean_continuous_states[0][:, n]*100, 5)
+inferred_latent_dynamics = inferred_latent_dynamics/100
+
+# Plot data on each subplot
+ax1.plot(inferred_latent_dynamics[:,0], '-k', lw=1)
+ax1.plot(latent_dynamics[:,0], '-r', lw=1)
+
+ax2.plot(inferred_latent_dynamics[:,1], '-k', lw=1)
+ax2.plot(latent_dynamics[:,1], '-r', lw=1)
+
+
+# Set x-axis limits for both subplots (optional)
+ax1.set_xlim(0, 1000)
+ax2.set_xlim(0, 1000)
+
+plt.tight_layout()  # Improves spacing
+plt.show()
+
+plt.figure(figsize=(6, 6))
+
+# Create two subplots (2 rows, 1 column)
+ax1 = plt.subplot(111)  # First subplot (top)
+inferred_spike_dynamics =  q_lem_y
+
+# Plot data on each subplot
+ax1.plot(inferred_spike_dynamics[:,:1], '-r', lw=1)
+ax1.plot(binned_spike_data[:,:1], '-k', lw=1)
+
+# Plot the smoothed observations
+N = 3
+plt.figure(figsize=(8,4))
+plt.plot(binned_spike_data[:,:N] + N * np.arange(N), '-k', lw=2)
+plt.plot(inferred_spike_dynamics[:,:N] + N * np.arange(N), '-', lw=2)
+plt.ylabel("$y$")
+plt.xlabel("time")
+plt.xlim(0, 1000)
+
+# Set x-axis limits for both subplots (optional)
+ax1.set_xlim(0, 1000)
+
+plt.tight_layout()  # Improves spacing
+plt.show()
+
+# %%
+from ssm.plots import plot_most_likely_dynamics
+plt.figure(figsize=(6,6))
+ax = plt.subplot(111)
+q_lem_scaled = inferred_latent_dynamics[:150,:]*2
+lim = abs(q_lem_scaled).max(axis=0)+1
+plot_most_likely_dynamics(slds, xlim=(-lim[0], lim[0]), ylim=(-lim[1], lim[1]), ax=ax)
+plt.plot(q_lem_scaled[:,0], q_lem_scaled[:,1], '-k', lw=1)
+
+plt.title("Most Likely Dynamics, Laplace-EM")
 # %%
