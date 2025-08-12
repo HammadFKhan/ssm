@@ -17,7 +17,7 @@ import h5py
 #%%
 
 
-mat_file_path = r"D:\SequenceProject\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
+mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
 
 with h5py.File(mat_file_path, 'r') as f:
     # Access the 'warpedSpks' dataset (the MATLAB struct)
@@ -115,7 +115,7 @@ latent_dim = 3
 slds = SLDS(obs_dim, num_states, latent_dim, emissions="poisson_orthog", transitions="recurrent",emission_kwargs=dict(link="softplus"))
 binned_spike_data = binned_spike_data.astype(np.int32)
 assert binned_spike_data.dtype == int
-slds.initialize(binned_spike_data)
+slds.initialize(binned_spike_data,verbose=1)
 # Fit the model using Laplace-EM with a structured variational posterior
 q_lem_elbos, q_lem = slds.fit(binned_spike_data, method="laplace_em",
                                variational_posterior="structured_meanfield",
@@ -420,4 +420,131 @@ plt.tight_layout()
 filename = "TrialAveraged_Spike_state.pdf"
 #plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
 plt.show()
+# %%
+def plot_trajectory(z, x, ax=None, ls="-"):
+    zcps = np.concatenate(([0], np.where(np.diff(z))[0] + 1, [z.size]))
+    if ax is None:
+        fig = plt.figure(figsize=(4, 4))
+        ax = fig.gca()
+    for start, stop in zip(zcps[:-1], zcps[1:]):
+        ax.plot(x[start:stop + 1, 0],
+                x[start:stop + 1, 1],
+                lw=1, ls=ls,
+                color=colors[z[start] % len(colors)],
+                alpha=1.0)
+
+    return ax
+
+rslds_states_inferred = slds.most_likely_states(q_lem_x, inferred_spike_dynamics.astype(int))
+ax3 = plt.subplot(111)
+plot_trajectory(rslds_states_inferred, inferred_latent_dynamics, ax=ax3)
+plt.title("Inferred, Laplace-EM")
+plt.tight_layout()
+# %%
+# Create publication-quality figure with better dimensions
+import matplotlib.animation as animation
+from scipy.ndimage import gaussian_filter1d
+
+# Assuming latent_dynamics and q_lem_y are already defined as in your snippet
+# Below is a mock example setup to illustrate:
+
+
+# Smooth latent dynamics
+x = np.zeros_like(latent_dynamics, dtype='int32')
+for n in range(latent_dynamics.shape[1]):
+    x[:, n] = gaussian_filter1d(latent_dynamics[:, n]*100, 20)
+x = x / 100
+
+# Create figure with 2 vertical subplots
+fig, (ax_img, ax_traj) = plt.subplots(2, 1, figsize=(5, 6), sharex=False)
+
+# Top subplot: image plot of spike counts
+im2 = ax_img.imshow(np.transpose(q_lem_y), aspect='auto', cmap='plasma',
+                    interpolation='none', vmin=0, vmax=8)
+ax_img.set_title("Inferred Spike Counts", fontsize=14, fontweight='bold')
+ax_img.set_xlabel("Time Bins", fontsize=12)
+ax_img.set_ylabel("Neurons", fontsize=12)
+ax_img.grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
+
+# Initial x-axis window for the image plot
+window_width = 500
+ax_img.set_xlim(0, window_width)
+
+# Colorbar for the image plot
+cbar2 = fig.colorbar(im2, ax=ax_img, fraction=0.046, pad=0.04)
+cbar2.set_label("Inferred Spike Count", fontsize=12)
+cbar2.ax.tick_params(labelsize=10)
+
+# Bottom subplot: latent dynamics trajectory plot
+ax_traj.set_xlim(x[:,0].min(), x[:,0].max())
+ax_traj.set_ylim(x[:,1].min(), x[:,1].max())
+ax_traj.set_title("Latent Dynamics Trajectory", fontsize=14, fontweight='bold')
+ax_traj.set_xlabel("Dimension 1", fontsize=12)
+ax_traj.set_ylabel("Dimension 2", fontsize=12)
+
+# Light gray line for full history
+history_line, = ax_traj.plot([], [], lw=1, ls="-", alpha=0.3, color='gray')
+
+# Thicker blue line segment for current point + previous 5 points
+current_segment, = ax_traj.plot([], [], lw=3, ls="-", color='blue', alpha=1.0)
+
+plt.tight_layout()
+
+max_limit = 3000
+
+def animate(i):
+    # Animate image subplot: scroll x-axis window horizontally
+    start = i
+    end = i + window_width
+    if end > max_limit:
+        end = max_limit
+        start = max_limit - window_width
+    ax_img.set_xlim(start, end)
+
+    # Animate trajectory subplot
+    start_traj = max(0, i-5)
+    current_segment.set_data(x[start_traj:i+1, 0], x[start_traj:i+1, 1])
+    history_line.set_data(x[:i, 0], x[:i, 1])
+
+    return im2, current_segment, history_line
+
+ani = animation.FuncAnimation(fig, animate,
+                              frames=max_limit - window_width,
+                              interval=50, blit=True)
+ani.save("traj.gif")
+
+plt.show()
+# %%
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
+# Choose number of components for latent space (2-3 is good for visualization)
+n_components = 10
+
+# Fit PCA to the spike count data
+scaler = StandardScaler(with_std=False)
+smoothed_spikes_standardized = scaler.fit_transform(binned_spike_data)
+
+pca = PCA(n_components=n_components)
+latent_dynamics = pca.fit_transform(smoothed_spikes_standardized)
+
+# Get PC weights (loadings) for each neuron
+# In sklearn, components_ is of shape (n_components, n_features)
+pc_weights = pca.components_  # Each row is a PC, each column is a neuron
+
+# Create a sorting index based on PC weights
+# Sort neurons primarily by their PC1 weights, then PC2, then PC3
+# First, let's group by sign of PC1
+pc1_positive = pc_weights[0] > 0
+pc1_negative = ~pc1_positive
+
+# Within each group, sort by magnitude of PC1 weight
+sort_idx = np.zeros(pc_weights.shape[1], dtype=int)
+pos_idx = np.where(pc1_positive)[0]
+neg_idx = np.where(pc1_negative)[0]
+
+# Sort positive PC1 neurons by decreasing weight
+sort_idx[:len(pos_idx)] = pos_idx[np.argsort(-pc_weights[0, pos_idx])]
+# Sort negative PC1 neurons by increasing weight (most negative first)
+sort_idx[len(pos_idx):] = neg_idx[np.argsort(pc_weights[0, neg_idx])]
 # %%
