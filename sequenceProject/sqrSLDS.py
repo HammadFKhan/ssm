@@ -23,7 +23,37 @@ with h5py.File(mat_file_path, 'r') as f:
     # Access the 'warpedSpks' dataset (the MATLAB struct)
     warpedSpks = f['warpedSpks']
     print(f.keys())
-    
+    intan_behaviour = f['IntanBehaviour']
+    hit = intan_behaviour['hitTrace']
+    print(hit.keys())  # just to verify available fields
+    hit_trace = hit['trace']
+
+    # Flatten reference array for easy iteration
+    refs = hit_trace[:].flatten()
+
+    # Extract all traces as a list of numpy arrays
+    all_traces = [f[ref][:] for ref in refs]
+
+    # Optionally, stack into a 2D or 3D NumPy array if dimensions match
+    # For example, if each trace is (timepoints,), stack into (n_trials, timepoints)
+    all_traces_array = np.squeeze(np.stack(all_traces))
+
+    print(f"Extracted {len(all_traces)} traces")
+    print(f"Shape of single trace: {all_traces[0].shape}")
+    print(f"Shape of stacked array: {all_traces_array.shape}")
+    # Dereference to get the struct group
+    struct = f['warpedSpks' ]
+    print("Fields in the struct:")
+    print(list(struct.keys()))  # Should list all fields, including 'warpedSpikes'
+
+    # Access the 'warpedSpikes' field
+    warp_spk = struct['warpSpikes'][:]
+
+    structp = struct['pull3A']
+    pull1 = structp['pull1'][:]
+    pull2 = structp['pull2'][:]
+    pull3 = structp['pull3'][:]
+        
     # Typically, the struct array contains references
     # Get the first struct in the array (adjust the index for your case)
     struct_ref = 'warpedSpks' # or [0] if 1D
@@ -135,149 +165,23 @@ plt.plot(q_lem_elbos[1:], label="Laplace-EM")
 
 plt.legend(loc="lower right")
 #%%
-from matplotlib.colors import ListedColormap
-import seaborn as sns
-
-# Create figure
-fig, axs = plt.subplots(1, 1, figsize=(8, 2), sharex=True)
-colors = sns.color_palette("viridis", num_states)
-state_cmap = ListedColormap(colors)
-# Plot inferred states with better colormap and colorbar
-im2 = axs.imshow(rslds_states[None, :]+1, aspect="auto", cmap=state_cmap, 
-                        vmin=1, vmax=num_states, interpolation='none',
-                        extent=[0, len(rslds_states), -0.5, 0.5])
-
-
-axs.set_ylabel("RSLDS Inferred $z$", fontsize=12)
-axs.yaxis.set_ticks([])  # Remove y-axis ticks
-cbar2 = fig.colorbar(im2, ax=axs, orientation="vertical", fraction=0.046, pad=0.04)
-cbar2.set_label("State", fontsize=10)
-cbar2.ax.tick_params(labelsize=10)
-
-
-# Add shared x-axis label
-axs.set_xlabel("Time Bins", fontsize=12)
-axs.set_xlim(0,5000)
-# Adjust layout for better spacing
-plt.tight_layout()
-filename = "rslds_Discretestate.pdf"
-plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
-# Show the plot
-plt.show()
+import getFigures as sqFig
+sqFig.plot_rslds_states(rslds_states,num_states,filename = "rslds_Discretestate.pdf")
 
 # %%
-def plot_trajectory(z, x, ax=None, ls="-"):
-    zcps = np.concatenate(([0], np.where(np.diff(z))[0] + 1, [z.size]))
-    if ax is None:
-        fig = plt.figure(figsize=(4, 4))
-        ax = fig.gca()
-    for start, stop in zip(zcps[:-1], zcps[1:]):
-        ax.plot(x[start:stop + 1, 0],
-                x[start:stop + 1, 1],
-                lw=1, ls=ls,
-                color=colors[z[start] % len(colors)],
-                alpha=1.0)
-
-    return ax
-
-ax3 = plt.subplot(111)
-plot_trajectory(rslds_states, q_lem_y, ax=ax3)
-plt.title("Inferred, Laplace-EM")
-plt.tight_layout()
+sqFig.plot_trajectory_states
 # %%
-import seaborn as sns
-from matplotlib.colors import ListedColormap
-import matplotlib.pyplot as plt
-plt.rcParams['pdf.fonttype'] = 42
-plt.rcParams['ps.fonttype'] = 42
-# Setup
-num_timepoints_per_trial = 250
-numPC_show = 6
-colors = sns.color_palette("viridis", numPC_show)
-state_cmap = ListedColormap(colors)
-num_total_timepoints, _ = latent_dynamics.shape
-num_trials = num_total_timepoints // num_timepoints_per_trial
-
-# Prepare subplots: numPC_show rows, 2 columns
-fig, axs = plt.subplots(numPC_show, 2, figsize=(12, 2 * numPC_show), sharex=True)
-comp_combine = []
-for comp in range(numPC_show):
-    comp_all_time = latent_dynamics[:, comp]
-    comp_by_trial = comp_all_time[:num_trials * num_timepoints_per_trial].reshape(num_trials, num_timepoints_per_trial)
-    x = np.linspace(-3.5, 1.5, num_timepoints_per_trial)
-    comp_combine.append(comp_by_trial) 
-    # First column: Overlay all trials in faint color, then the mean in black
-    for trial in range(num_trials):
-        axs[comp, 0].plot(x, comp_by_trial[trial, :], alpha=0.25, color=colors[comp])
-    axs[comp, 0].plot(x, comp_by_trial.mean(0), alpha=1, color='black', linewidth=2)
-    axs[comp, 0].set_ylabel(f'Latent {comp+1}', fontsize=12)
-    if comp == numPC_show - 1:
-        axs[comp, 0].set_xlabel('Time', fontsize=12)
-    axs[comp, 0].set_title('All Trials + Mean')
-    
-    # Second column: Only mean
-    axs[comp, 1].plot(x, comp_by_trial.mean(0), alpha=1, color='black', linewidth=2)
-    if comp == numPC_show - 1:
-        axs[comp, 1].set_xlabel('Time', fontsize=12)
-    axs[comp, 1].set_title('Mean Only')
-
-filename = fSave
-plt.tight_layout()
-plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
-print(f"Figure saved as {filename}")
+sqFig.plot_trail_pca(latent_dynamics,num_timepoints_per_trial = 250,filename='trialPCA.pdf')
 
 # %%
 # %% Plot out inferred latent dynamics
-plt.figure(figsize=(6, 6))
-
-# Create two subplots (2 rows, 1 column)
-ax1 = plt.subplot(211)  # First subplot (top)
-ax2 = plt.subplot(212)  # Second subplot (bottom)
 inferred_latent_dynamics =  np.zeros_like(q_lem.mean_continuous_states[0], dtype='int32')
 for n in range(q_lem.mean_continuous_states[0].shape[1]):
         inferred_latent_dynamics[:, n] = gaussian_filter1d(q_lem.mean_continuous_states[0][:, n]*100, 5)
 inferred_latent_dynamics = inferred_latent_dynamics/100
 
-# Plot data on each subplot
-ax1.plot(inferred_latent_dynamics[:,0], '-k', lw=1)
-ax1.plot(latent_dynamics[:,0], '-r', lw=1)
-
-ax2.plot(inferred_latent_dynamics[:,1], '-k', lw=1)
-ax2.plot(latent_dynamics[:,1], '-r', lw=1)
-
-
-# Set x-axis limits for both subplots (optional)
-ax1.set_xlim(0, 1000)
-ax2.set_xlim(0, 1000)
-
-plt.tight_layout()  # Improves spacing
-plt.show()
-
-plt.figure(figsize=(6, 6))
-
-# Create two subplots (2 rows, 1 column)
-ax1 = plt.subplot(111)  # First subplot (top)
-inferred_spike_dynamics =  q_lem_y
-
-# Plot data on each subplot
-ax1.plot(inferred_spike_dynamics[:,:1], '-r', lw=1)
-ax1.plot(binned_spike_data[:,:1], '-k', lw=1)
-
-# Plot the smoothed observations
-N = 3
-plt.figure(figsize=(8,4))
-plt.plot(binned_spike_data[:,:N] + N * np.arange(N), '-k', lw=2)
-plt.plot(inferred_spike_dynamics[:,:N] + N * np.arange(N), '-', lw=2)
-plt.ylabel("$y$")
-plt.xlabel("time")
-plt.xlim(0, 1000)
-
-# Set x-axis limits for both subplots (optional)
-ax1.set_xlim(0, 1000)
-
-plt.tight_layout()  # Improves spacing
-plt.show()
-
+sqFig.plot_inferred_spks(binned_spike_data,q_lem_y)
+sqFig.plot_inferred_latent_dynamics(latent_dynamics,inferred_latent_dynamics)
 # %%
 from ssm.plots import plot_most_likely_dynamics
 plt.figure(figsize=(6,6))
@@ -289,59 +193,7 @@ plt.plot(q_lem_scaled[:,0], q_lem_scaled[:,1], '-k', lw=1)
 
 plt.title("Most Likely Dynamics, Laplace-EM")
 # %%
-# Create publication-quality figure with better dimensions
-fig, axs = plt.subplots(2, 1, figsize=(6, 8), sharex=True)
-
-
-# Plot binned spike counts
-im1 = axs[0].imshow(np.transpose(binned_spike_data), 
-                   aspect='auto', 
-                   cmap='plasma',  # Scientific colormap that's colorblind-friendly
-                   interpolation='none',
-                   vmin = 0, vmax = 8)  # Preserves exact values
-axs[0].set_title("Spike Data", fontsize=14, fontweight='bold')
-axs[0].set_ylabel("Neurons", fontsize=12)
-
-# Add gridlines to help identify neuron positions
-axs[0].grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
-
-# Custom colorbar with proper positioning
-cbar1 = fig.colorbar(im1, ax=axs[0], fraction=0.046, pad=0.04)
-cbar1.set_label("Spike Count", fontsize=12)
-cbar1.ax.tick_params(labelsize=10)
-
-# Plot smoothed spikes with different colormap for visual distinction
-im2 = axs[1].imshow(np.transpose(q_lem_y), 
-                   aspect='auto', 
-                   cmap='plasma',  # Different colormap to distinguish from raw data
-                   interpolation='none', vmin = 0, vmax = 8)
-axs[1].set_title("Inferred Spike Counts", fontsize=14, fontweight='bold')
-axs[1].set_xlabel("Time Bins", fontsize=12)
-axs[1].set_ylabel("Neurons", fontsize=12)
-
-# Add gridlines
-axs[1].grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
-axs[1].set_xlim(0,5500)
-# Custom colorbar for smooth data
-cbar2 = fig.colorbar(im2, ax=axs[1], fraction=0.046, pad=0.04)
-cbar2.set_label("Inferred Spike Count", fontsize=12)
-cbar2.ax.tick_params(labelsize=10)
-
-# Add proper tick formatting for both axes
-for ax in axs:
-    ax.tick_params(axis='both', which='major', labelsize=10)
-    ax.set_yticks(np.arange(0, np.transpose(binned_spike_data).shape[0], 5))
-    ax.set_yticklabels([f"{i}" for i in range(0, np.transpose(binned_spike_data).shape[0], 5)])
-
-# Adjust spacing between subplots
-plt.tight_layout()
-
-
-# Optional: Add a super title
-fig.suptitle("Neural Population Activity", fontsize=16, y=1.02)
-filename = "Inferred_Spike_state.pdf"
-plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
-plt.show()
+sqFig.plot_inferred_population(binned_spike_data,q_lem_y)
 
 # %%
 # Assuming spike_data is your 2D array with shape (time_total, neurons)
@@ -370,7 +222,7 @@ def make_trials(neural_data,trial_time):
 
 trial_time = 250
 _,spike_trial_average = make_trials(binned_spike_data,trial_time)
-_,inferred_spike_average = make_trials(inferred_spike_dynamics,trial_time)
+_,inferred_spike_average = make_trials(q_lem_y,trial_time)
 _,latent_average = make_trials(inferred_latent_dynamics,trial_time)
 # Create publication-quality figure with better dimensions
 fig, axs = plt.subplots(2, 1, figsize=(6, 8), sharex=True)
@@ -420,26 +272,7 @@ plt.tight_layout()
 filename = "TrialAveraged_Spike_state.pdf"
 #plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
 plt.show()
-# %%
-def plot_trajectory(z, x, ax=None, ls="-"):
-    zcps = np.concatenate(([0], np.where(np.diff(z))[0] + 1, [z.size]))
-    if ax is None:
-        fig = plt.figure(figsize=(4, 4))
-        ax = fig.gca()
-    for start, stop in zip(zcps[:-1], zcps[1:]):
-        ax.plot(x[start:stop + 1, 0],
-                x[start:stop + 1, 1],
-                lw=1, ls=ls,
-                color=colors[z[start] % len(colors)],
-                alpha=1.0)
 
-    return ax
-
-rslds_states_inferred = slds.most_likely_states(q_lem_x, inferred_spike_dynamics.astype(int))
-ax3 = plt.subplot(111)
-plot_trajectory(rslds_states_inferred, inferred_latent_dynamics, ax=ax3)
-plt.title("Inferred, Laplace-EM")
-plt.tight_layout()
 # %%
 # Create publication-quality figure with better dimensions
 import matplotlib.animation as animation
@@ -447,104 +280,76 @@ from scipy.ndimage import gaussian_filter1d
 
 # Assuming latent_dynamics and q_lem_y are already defined as in your snippet
 # Below is a mock example setup to illustrate:
-
-
-# Smooth latent dynamics
-x = np.zeros_like(latent_dynamics, dtype='int32')
-for n in range(latent_dynamics.shape[1]):
-    x[:, n] = gaussian_filter1d(latent_dynamics[:, n]*100, 20)
-x = x / 100
-
-# Create figure with 2 vertical subplots
-fig, (ax_img, ax_traj) = plt.subplots(2, 1, figsize=(5, 6), sharex=False)
-
-# Top subplot: image plot of spike counts
-im2 = ax_img.imshow(np.transpose(q_lem_y), aspect='auto', cmap='plasma',
-                    interpolation='none', vmin=0, vmax=8)
-ax_img.set_title("Inferred Spike Counts", fontsize=14, fontweight='bold')
-ax_img.set_xlabel("Time Bins", fontsize=12)
-ax_img.set_ylabel("Neurons", fontsize=12)
-ax_img.grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
-
-# Initial x-axis window for the image plot
-window_width = 500
-ax_img.set_xlim(0, window_width)
-
-# Colorbar for the image plot
-cbar2 = fig.colorbar(im2, ax=ax_img, fraction=0.046, pad=0.04)
-cbar2.set_label("Inferred Spike Count", fontsize=12)
-cbar2.ax.tick_params(labelsize=10)
-
-# Bottom subplot: latent dynamics trajectory plot
-ax_traj.set_xlim(x[:,0].min(), x[:,0].max())
-ax_traj.set_ylim(x[:,1].min(), x[:,1].max())
-ax_traj.set_title("Latent Dynamics Trajectory", fontsize=14, fontweight='bold')
-ax_traj.set_xlabel("Dimension 1", fontsize=12)
-ax_traj.set_ylabel("Dimension 2", fontsize=12)
-
-# Light gray line for full history
-history_line, = ax_traj.plot([], [], lw=1, ls="-", alpha=0.3, color='gray')
-
-# Thicker blue line segment for current point + previous 5 points
-current_segment, = ax_traj.plot([], [], lw=3, ls="-", color='blue', alpha=1.0)
-
-plt.tight_layout()
-
-max_limit = 3000
-
-def animate(i):
-    # Animate image subplot: scroll x-axis window horizontally
-    start = i
-    end = i + window_width
-    if end > max_limit:
-        end = max_limit
-        start = max_limit - window_width
-    ax_img.set_xlim(start, end)
-
-    # Animate trajectory subplot
-    start_traj = max(0, i-5)
-    current_segment.set_data(x[start_traj:i+1, 0], x[start_traj:i+1, 1])
-    history_line.set_data(x[:i, 0], x[:i, 1])
-
-    return im2, current_segment, history_line
-
-ani = animation.FuncAnimation(fig, animate,
-                              frames=max_limit - window_width,
-                              interval=50, blit=True)
-ani.save("traj.gif")
-
-plt.show()
-# %%
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-
+from scipy import signal
 # Choose number of components for latent space (2-3 is good for visualization)
 n_components = 10
 
 # Fit PCA to the spike count data
 scaler = StandardScaler(with_std=False)
-smoothed_spikes_standardized = scaler.fit_transform(binned_spike_data)
+smoothed_spikes_standardized = scaler.fit_transform(q_lem_y)
 
 pca = PCA(n_components=n_components)
 latent_dynamics = pca.fit_transform(smoothed_spikes_standardized)
 
-# Get PC weights (loadings) for each neuron
-# In sklearn, components_ is of shape (n_components, n_features)
-pc_weights = pca.components_  # Each row is a PC, each column is a neuron
+# Smooth latent dynamics
+x = np.zeros_like(latent_dynamics, dtype='int32')
+for n in range(latent_dynamics.shape[1]):
+    t = gaussian_filter1d(latent_dynamics[:, n]*100, 20)
+    sos = signal.butter(1, .05, 'hp', fs=1000/20, output='sos')
+    x[:, n] = t
+x = x / 100
+leverTrace = np.reshape(all_traces_array, all_traces_array.shape[0]*all_traces_array.shape[1])
+leverTrace = leverTrace[1::bin_size_ms]
+# Create figure with 2 vertical subplots
+sqFig.plot_traj_spk_video(q_lem_y,x,leverTrace,
+                        max_limit = 20000,
+                        start_interval = 20,
+                        end_interval = 5,
+                        speedup_duration = 2500,
+                        fname = "traj_video.mp4")
 
-# Create a sorting index based on PC weights
-# Sort neurons primarily by their PC1 weights, then PC2, then PC3
-# First, let's group by sign of PC1
-pc1_positive = pc_weights[0] > 0
-pc1_negative = ~pc1_positive
 
-# Within each group, sort by magnitude of PC1 weight
-sort_idx = np.zeros(pc_weights.shape[1], dtype=int)
-pos_idx = np.where(pc1_positive)[0]
-neg_idx = np.where(pc1_negative)[0]
+#%%
+transition_matrix = slds.transitions.transition_matrix
+sqFig.plot_transition_matrix(transition_matrix)
 
-# Sort positive PC1 neurons by decreasing weight
-sort_idx[:len(pos_idx)] = pos_idx[np.argsort(-pc_weights[0, pos_idx])]
-# Sort negative PC1 neurons by increasing weight (most negative first)
-sort_idx[len(pos_idx):] = neg_idx[np.argsort(pc_weights[0, neg_idx])]
 # %%
+
+sqFig.plot_state_probability(rslds_states)
+
+#%% Save data
+fname = 'rsldsPerforamanceM1'
+
+# Import required libraries
+from scipy.io import savemat
+from sklearn.metrics import adjusted_rand_score
+import os
+
+# Calculate ARI scores correctly
+#rslds_ari = adjusted_rand_score(true_states, rslds_states)  # Fixed: using rslds_states instead of xhat_lem
+
+# Create dictionaries with correct metrics
+groundTruthData = {
+    'binned_spike_data': binned_spike_data,
+    'latent_dynamics': latent_dynamics
+}
+
+rsldsData = {
+    'latent_states': q_lem_x,
+    'discrete_states': rslds_states,
+    'inferred_spikes':q_lem_y,
+    'transition_matrix': slds.transitions.transition_matrix,
+    'q_elbos': q_lem_elbos
+}
+
+# Combine all dictionaries into a single dictionary with nested structure
+allData = {
+    'groundTruth': groundTruthData,
+    'rslds': rsldsData
+}
+
+# Save to a single .mat file
+fileName = f"{fname}.mat"
+savemat(fileName, allData)
+
+print(f"Model data saved: {os.path.exists(fileName)}")
