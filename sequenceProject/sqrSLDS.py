@@ -18,6 +18,7 @@ import h5py
 
 
 mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
+#mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\DLS\Day9_DLS_warpedSpks.mat"
 
 with h5py.File(mat_file_path, 'r') as f:
     # Access the 'warpedSpks' dataset (the MATLAB struct)
@@ -75,7 +76,7 @@ with h5py.File(mat_file_path, 'r') as f:
 #warp_spk = np.load(r"D:\SequenceProject\WarpedSpikes\DLS\Day9_DLS_warpedSpks_rslds.npy")
 #warp_spk = np.load(r"D:\SequenceProject\WarpedSpikes\M1\Day6_M1_warpedSpks_rslds.npy")
 
-fSave = 'Figures\Day6M1.pdf'
+fSave = 'Figures\Day6M1_'
 warp_spk = np.transpose(warp_spk, (3,2,1,0))
 [n_trials,n_time,n_neurons,nPulls] = warp_spk.shape
 #%%
@@ -133,13 +134,13 @@ sort_idx[len(pos_idx):] = neg_idx[np.argsort(pc_weights[0, neg_idx])]
 
 from hammad.Fig_SimSpike import plot_spikes_pca, plot_state_transitions
 
-plot_spikes_pca(binned_spike_data,pca,latent_dynamics)
+plot_spikes_pca(binned_spike_data,pca,latent_dynamics,filename=f"{fSave}latent_weights.pdf")
 #%%
 
 # 3. rSlds initialization
 num_states = 3
 obs_dim = binned_spike_data.shape[1]  # Get 3 from PCA components
-latent_dim = 3
+latent_dim = 2
 # Create the model and initialize its parameters
 
 slds = SLDS(obs_dim, num_states, latent_dim, emissions="poisson_orthog", transitions="recurrent",emission_kwargs=dict(link="softplus"))
@@ -164,16 +165,14 @@ plt.figure()
 plt.plot(q_lem_elbos[1:], label="Laplace-EM")
 
 plt.legend(loc="lower right")
-#%%
+#%% Plot out the data
 import getFigures as sqFig
-sqFig.plot_rslds_states(rslds_states,num_states,filename = "rslds_Discretestate.pdf")
+sqFig.plot_rslds_states(rslds_states,num_states,filename = f"{fSave}rslds_Discretestate.pdf")
 
-# %%
-sqFig.plot_trajectory_states
-# %%
-sqFig.plot_trail_pca(latent_dynamics,num_timepoints_per_trial = 250,filename='trialPCA.pdf')
+sqFig.plot_trajectory_states(rslds_states,latent_dynamics)
 
-# %%
+sqFig.plot_trail_pca(latent_dynamics,num_timepoints_per_trial = 250,filename=f"{fSave}trialPCA.pdf")
+
 # %% Plot out inferred latent dynamics
 inferred_latent_dynamics =  np.zeros_like(q_lem.mean_continuous_states[0], dtype='int32')
 for n in range(q_lem.mean_continuous_states[0].shape[1]):
@@ -193,86 +192,11 @@ plt.plot(q_lem_scaled[:,0], q_lem_scaled[:,1], '-k', lw=1)
 
 plt.title("Most Likely Dynamics, Laplace-EM")
 # %%
-sqFig.plot_inferred_population(binned_spike_data,q_lem_y)
+sqFig.plot_inferred_population(binned_spike_data,q_lem_y,filename = f"{fSave}Inferred_Spike_state.pdf")
 
-# %%
-# Assuming spike_data is your 2D array with shape (time_total, neurons)
-def make_trials(neural_data,trial_time):
-    time_total, n_neurons = neural_data.shape
-    spike_data_trial = np.zeros_like(neural_data)
-    # Calculate number of trials automatically
-    n_trials = time_total // trial_time
-
-    # Check if the time dimension is cleanly divisible by 600
-    if time_total % trial_time != 0:
-        # Truncate data to make it cleanly divisible
-        spike_data_trial = neural_data[:n_trials*trial_time, :]
-        print(f"Warning: Truncated {time_total - n_trials*trial_time} time points")
-
-    # First reshape to (n_trials, 600, n_neurons)
-    reshaped = spike_data_trial.reshape(n_trials, trial_time, n_neurons)
-
-    # Then transpose to get (600, n_neurons, n_trials)
-    spike_data_trials = np.transpose(reshaped, (1, 2, 0))
-
-    # Now take the mean across trials (axis=2, not axis=3 as Python is 0-indexed)
-    trial_average = np.mean(spike_data_trials, axis=2)
-
-    return spike_data_trials,trial_average
-
-trial_time = 250
-_,spike_trial_average = make_trials(binned_spike_data,trial_time)
-_,inferred_spike_average = make_trials(q_lem_y,trial_time)
-_,latent_average = make_trials(inferred_latent_dynamics,trial_time)
-# Create publication-quality figure with better dimensions
-fig, axs = plt.subplots(2, 1, figsize=(6, 8), sharex=True)
-
-
-# Plot binned spike counts
-im1 = axs[0].imshow(np.transpose(spike_trial_average), 
-                   aspect='auto', 
-                   cmap='plasma',  # Scientific colormap that's colorblind-friendly
-                   interpolation='none',
-                   vmin = 0, vmax = 8)  # Preserves exact values
-axs[0].set_title("Actual Trial-averaged Spike", fontsize=14, fontweight='bold')
-axs[0].set_ylabel("Neurons", fontsize=12)
-
-# Add gridlines to help identify neuron positions
-axs[0].grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
-
-# Custom colorbar with proper positioning
-cbar1 = fig.colorbar(im1, ax=axs[0], fraction=0.046, pad=0.04)
-cbar1.set_label("Spike Count", fontsize=12)
-cbar1.ax.tick_params(labelsize=10)
-
-# Plot smoothed spikes with different colormap for visual distinction
-im2 = axs[1].imshow(np.transpose(inferred_spike_average), 
-                   aspect='auto', 
-                   cmap='plasma',  # Different colormap to distinguish from raw data
-                   interpolation='none', vmin = 0, vmax = 8)
-axs[1].set_title("Inferred Trial-averaged Spike", fontsize=14, fontweight='bold')
-axs[1].set_xlabel("Time Bins", fontsize=12)
-axs[1].set_ylabel("Neurons", fontsize=12)
-
-# Add gridlines
-axs[1].grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
-# Custom colorbar for smooth data
-cbar2 = fig.colorbar(im2, ax=axs[1], fraction=0.046, pad=0.04)
-cbar2.set_label("Inferred Spike Count", fontsize=12)
-cbar2.ax.tick_params(labelsize=10)
-
-# Add proper tick formatting for both axes
-for ax in axs:
-    ax.tick_params(axis='both', which='major', labelsize=10)
-    ax.set_yticks(np.arange(0, np.transpose(binned_spike_data).shape[0], 5))
-    ax.set_yticklabels([f"{i}" for i in range(0, np.transpose(binned_spike_data).shape[0], 5)])
-
-# Adjust spacing between subplots
-plt.tight_layout()
-filename = "TrialAveraged_Spike_state.pdf"
-#plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
-plt.show()
-
+sqFig.plot_trial_inferred_spks(binned_spike_data,q_lem_y,inferred_latent_dynamics,
+                             trial_time = 250,
+                             filename = f"{fSave}TrialAveraged_Spike_state.pdf")
 # %%
 # Create publication-quality figure with better dimensions
 import matplotlib.animation as animation
@@ -300,25 +224,26 @@ for n in range(latent_dynamics.shape[1]):
 x = x / 100
 leverTrace = np.reshape(all_traces_array, all_traces_array.shape[0]*all_traces_array.shape[1])
 leverTrace = leverTrace[1::bin_size_ms]
-# Create figure with 2 vertical subplots
+# %%
+#Create figure with 2 vertical subplots
 sqFig.plot_traj_spk_video(q_lem_y,x,leverTrace,
-                        max_limit = 20000,
+                        max_limit = 5000,
                         start_interval = 20,
-                        end_interval = 5,
-                        speedup_duration = 2500,
-                        fname = "traj_video.mp4")
+                        end_interval = 10,
+                        speedup_duration = 1000,
+                        fname = f"{fSave}traj_videoDLS3.mp4")
 
 
 #%%
 transition_matrix = slds.transitions.transition_matrix
-sqFig.plot_transition_matrix(transition_matrix)
+sqFig.plot_transition_matrix(transition_matrix,filename = f"{fSave}Transition_state.pdf")
 
 # %%
 
-sqFig.plot_state_probability(rslds_states)
+sqFig.plot_state_probability(rslds_states,filename = f"{fSave}_state_proportion.pdf")
 
 #%% Save data
-fname = 'rsldsPerforamanceM1'
+fname = 'rsldsPerforamanceM1Day6'
 
 # Import required libraries
 from scipy.io import savemat
@@ -353,3 +278,77 @@ fileName = f"{fname}.mat"
 savemat(fileName, allData)
 
 print(f"Model data saved: {os.path.exists(fileName)}")
+
+# Save multiple arrays and objects to an .npz file
+np.savez(f"{fname}.npz", rsldsData,groundTruthData)
+print(f"Model data saved: {os.path.exists(fileName)}")
+# %% Plot each linear system
+from ssm.plots import plot_dynamics_2d
+# Iterate over all discrete states
+num_states = slds.K  # Number of discrete states
+lim = abs(latent_dynamics).max(axis=0) + 4  # Define limits based on latent dynamics
+mins = (-lim[0], -lim[1])
+maxs = (lim[0], lim[1])
+import seaborn as sns
+color_names = ["windows blue", "red", "amber", "faded green"]
+colors = sns.xkcd_palette(color_names)
+
+for k in range(num_states):
+    # Extract dynamics for state k
+    dynamics_matrix = np.squeeze(slds.dynamics.As[k, :, :])
+    dynamics_matrix = dynamics_matrix[:2,:2]
+    bias_vector = np.squeeze(slds.dynamics.bs[k, :])
+    bias_vector = bias_vector[:2]
+    # Create a new figure for each state's flow field
+    plt.figure(figsize=(6, 6))
+    plot_dynamics_2d(dynamics_matrix, bias_vector, mins=mins, maxs=maxs,color=colors[k])
+    
+    # Overlay the latent dynamics trajectory
+    #plt.plot(sim_latent_smooth[:, 0], sim_latent_smooth[:, 1], '-k', lw=1)
+    
+    # Add title and labels
+    plt.title(f"Flow Field for State {k+1}")
+    plt.xlabel("Latent Dimension 1")
+    plt.ylabel("Latent Dimension 2")
+    filename = f"flowfield2_{k}.pdf"
+    plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+    plt.show()
+# %%
+def plot_most_likely_dynamics(model,
+    xlim=(-4, 4), ylim=(-3, 3), nxpts=30, nypts=30,
+    alpha=0.8, ax=None, figsize=(3, 3)):
+    import seaborn as sns
+    color_names = ["windows blue", "red", "amber", "faded green"]
+    colors = sns.xkcd_palette(color_names)
+    K = model.K
+    assert model.D == 2
+    x = np.linspace(*xlim, nxpts)
+    y = np.linspace(*ylim, nypts)
+    X, Y = np.meshgrid(x, y)
+    xy = np.column_stack((X.ravel(), Y.ravel()))
+
+    # Get the probability of each state at each xy location
+    log_Ps = model.transitions.log_transition_matrices(
+        xy, np.zeros((nxpts * nypts, 0)), np.ones_like(xy, dtype=bool), None)
+    z = np.argmax(log_Ps[:, 0, :], axis=-1)
+    z = np.concatenate([[z[0]], z])
+
+    if ax is None:
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111)
+
+    for k, (A, b) in enumerate(zip(model.dynamics.As, model.dynamics.bs)):
+        dxydt_m = xy.dot(A.T) + b - xy
+
+        zk = z == k
+        if zk.sum(0) > 0:
+            ax.quiver(xy[zk, 0], xy[zk, 1],
+                      dxydt_m[zk, 0], dxydt_m[zk, 1],
+                      color=colors[k % len(colors)], alpha=alpha)
+
+    ax.set_xlabel('$x_1$')
+    ax.set_ylabel('$x_2$')
+
+    plt.tight_layout()
+
+    return ax
