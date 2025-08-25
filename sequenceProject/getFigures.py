@@ -237,7 +237,6 @@ def plot_inferred_population(binned_spike_data,inferred_spike_data,filename = "I
 
     # Optional: Add a super title
     fig.suptitle("Neural Population Activity", fontsize=16, y=1.02)
-    filename = "Inferred_Spike_state.pdf"
     plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
     plt.show()
 
@@ -399,7 +398,6 @@ def plot_state_probability(rslds_states,filename = "M1_state.pdf"):
     )
     ax.set_title('M1')
     plt.tight_layout()
-    filename = "M1_state.pdf"
     plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
     plt.show()
 
@@ -481,6 +479,5 @@ def plot_trial_inferred_spks(binned_spike_data,inferred_spikes,inferred_latent_d
 
     # Adjust spacing between subplots
     plt.tight_layout()
-    filename = "TrialAveraged_Spike_state.pdf"
     plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
     plt.show()
