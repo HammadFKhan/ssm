@@ -17,8 +17,8 @@ import h5py
 #%%
 
 
-mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
-#mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\DLS\Day9_DLS_warpedSpks.mat"
+#mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
+mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\DLS\Day9_DLS_warpedSpks.mat"
 
 with h5py.File(mat_file_path, 'r') as f:
     # Access the 'warpedSpks' dataset (the MATLAB struct)
@@ -182,15 +182,49 @@ inferred_latent_dynamics = inferred_latent_dynamics/100
 sqFig.plot_inferred_spks(binned_spike_data,q_lem_y)
 sqFig.plot_inferred_latent_dynamics(latent_dynamics,inferred_latent_dynamics)
 # %%
-from ssm.plots import plot_most_likely_dynamics
-plt.figure(figsize=(6,6))
-ax = plt.subplot(111)
-q_lem_scaled = inferred_latent_dynamics[:150,:]*2
-lim = abs(q_lem_scaled).max(axis=0)+1
-plot_most_likely_dynamics(slds, xlim=(-lim[0], lim[0]), ylim=(-lim[1], lim[1]), ax=ax)
-plt.plot(q_lem_scaled[:,0], q_lem_scaled[:,1], '-k', lw=1)
+from matplotlib.colors import ListedColormap
+plt.rcParams['pdf.fonttype'] = 42
+plt.rcParams['ps.fonttype'] = 42
 
-plt.title("Most Likely Dynamics, Laplace-EM")
+
+# Create figure
+fig, axs = plt.subplots(3, 1, figsize=(8, 8), sharex=True)
+
+colors = sns.color_palette("viridis", num_states)
+state_cmap = ListedColormap(colors)
+# Plot inferred states with better colormap and colorbar
+im2 = axs[0].imshow(rslds_states[None, :]+1, aspect="auto", cmap=state_cmap, 
+                        vmin=1, vmax=num_states, interpolation='none',
+                        extent=[0, len(rslds_states), -0.5, 0.5])
+
+
+axs[0].set_ylabel("RSLDS Inferred $z$", fontsize=12)
+axs[0].yaxis.set_ticks([])  # Remove y-axis ticks
+cbar2 = fig.colorbar(im2, ax=axs[0], orientation="horizontal", fraction=0.046, pad=0.04)
+cbar2.set_label("State", fontsize=10)
+cbar2.ax.tick_params(labelsize=10)
+
+# Plot data on each subplot
+axs[1].plot(inferred_latent_dynamics[:,0], '-k', lw=1)
+axs[1].plot(inferred_latent_dynamics[:,1], '-r', lw=1)
+
+# Plot data on each subplot
+axs[2].plot(leverTrace, '-k', lw=1)
+totalPullTimes = np.array([pull1,pull2,pull3])//bin_size_ms
+totalPullTimes = totalPullTimes.squeeze()
+ymin = np.max(leverTrace)
+for n in range(280):
+     axs[2].vlines(totalPullTimes[:,n]+(250*n), ymin, ymin+0.04, colors='k', linestyles='-')
+# Set x-axis limits for both subplots (optional)
+# Add shared x-axis label
+axs[2].set_xlabel("Time Bins", fontsize=12)
+axs[2].set_xlim(0,3000)
+
+filename = f"{fSave}rslds_states.pdf"
+plt.tight_layout()
+plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+print(f"Figure saved as {filename}")
+plt.show()
 # %%
 sqFig.plot_inferred_population(binned_spike_data,q_lem_y,filename = f"{fSave}Inferred_Spike_state.pdf")
 
@@ -224,6 +258,7 @@ for n in range(latent_dynamics.shape[1]):
 x = x / 100
 leverTrace = np.reshape(all_traces_array, all_traces_array.shape[0]*all_traces_array.shape[1])
 leverTrace = leverTrace[1::bin_size_ms]
+leverTrace = gaussian_filter1d(leverTrace*100, 5)/100
 # %%
 #Create figure with 2 vertical subplots
 sqFig.plot_traj_spk_video(q_lem_y,x,leverTrace,
@@ -264,7 +299,8 @@ rsldsData = {
     'discrete_states': rslds_states,
     'inferred_spikes':q_lem_y,
     'transition_matrix': slds.transitions.transition_matrix,
-    'q_elbos': q_lem_elbos
+    'q_elbos': q_lem_elbos,
+    'rslds_model': slds
 }
 
 # Combine all dictionaries into a single dictionary with nested structure
@@ -314,41 +350,173 @@ for k in range(num_states):
     plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
     plt.show()
 # %%
-def plot_most_likely_dynamics(model,
-    xlim=(-4, 4), ylim=(-3, 3), nxpts=30, nypts=30,
-    alpha=0.8, ax=None, figsize=(3, 3)):
-    import seaborn as sns
-    color_names = ["windows blue", "red", "amber", "faded green"]
-    colors = sns.xkcd_palette(color_names)
-    K = model.K
-    assert model.D == 2
-    x = np.linspace(*xlim, nxpts)
-    y = np.linspace(*ylim, nypts)
-    X, Y = np.meshgrid(x, y)
-    xy = np.column_stack((X.ravel(), Y.ravel()))
+# %%
+from ssm.plots import plot_most_likely_dynamics
+def make_trials(neural_data,trial_time):
+        time_total, n_neurons = neural_data.shape
+        spike_data_trial = np.zeros_like(neural_data)
+        # Calculate number of trials automatically
+        n_trials = time_total // trial_time
 
-    # Get the probability of each state at each xy location
-    log_Ps = model.transitions.log_transition_matrices(
-        xy, np.zeros((nxpts * nypts, 0)), np.ones_like(xy, dtype=bool), None)
-    z = np.argmax(log_Ps[:, 0, :], axis=-1)
-    z = np.concatenate([[z[0]], z])
+        # Check if the time dimension is cleanly divisible by 600
+        if time_total % trial_time != 0:
+            # Truncate data to make it cleanly divisible
+            spike_data_trial = neural_data[:n_trials*trial_time, :]
+            print(f"Warning: Truncated {time_total - n_trials*trial_time} time points")
 
-    if ax is None:
-        fig = plt.figure(figsize=figsize)
-        ax = fig.add_subplot(111)
+        # First reshape to (n_trials, 600, n_neurons)
+        reshaped = spike_data_trial.reshape(n_trials, trial_time, n_neurons)
 
-    for k, (A, b) in enumerate(zip(model.dynamics.As, model.dynamics.bs)):
-        dxydt_m = xy.dot(A.T) + b - xy
+        # Then transpose to get (600, n_neurons, n_trials)
+        spike_data_trials = np.transpose(reshaped, (1, 2, 0))
 
-        zk = z == k
-        if zk.sum(0) > 0:
-            ax.quiver(xy[zk, 0], xy[zk, 1],
-                      dxydt_m[zk, 0], dxydt_m[zk, 1],
-                      color=colors[k % len(colors)], alpha=alpha)
+        # Now take the mean across trials (axis=2, not axis=3 as Python is 0-indexed)
+        trial_average = np.mean(spike_data_trials, axis=2)
 
-    ax.set_xlabel('$x_1$')
-    ax.set_ylabel('$x_2$')
+        return spike_data_trials,trial_average
+_,latent_average = make_trials(inferred_latent_dynamics,250)
+plt.figure(figsize=(6,6))
+ax = plt.subplot(111)
+q_lem_scaled = inferred_latent_dynamics*10
+latent_average_scaled = latent_average
+lim = abs(latent_average_scaled).max(axis=0)+1
+totalPullTimes = np.array([0,np.mean(pull1),np.mean(pull2),np.mean(pull3),np.mean(pull3)+500])//bin_size_ms
+totalPullTimes = totalPullTimes.astype(int)
+plot_most_likely_dynamics(slds, xlim=(-lim[0], lim[0]), ylim=(-lim[1], lim[1]), ax=ax)
+#plt.plot(q_lem_scaled, q_lem_scaled,'-k', lw=1,alpha = 0.3)
+plt.plot(latent_average_scaled[:,0], latent_average_scaled[:,1],'-k', lw=2,alpha = 0.5)
+plt.scatter(latent_average_scaled[totalPullTimes,0],latent_average_scaled[totalPullTimes,1],s=24,c='green')
+plt.title("Sequence Dynamics")
+filename = f"{fSave}likely_state.pdf"
+plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+print(f"Figure saved as {filename}")
+plt.show()
+# %% Here we want to retrain the model to extract the 
+# latent contineous states and their corresponding eigen values 
+# 3. rSlds initialization
+num_states = 3
+obs_dim = binned_spike_data.shape[1]  # Get 3 from PCA components
+latent_dim = 8
+# Create the model and initialize its parameters
 
-    plt.tight_layout()
+slds_expand = SLDS(obs_dim, num_states, latent_dim, emissions="poisson_orthog", transitions="recurrent",emission_kwargs=dict(link="softplus"))
+binned_spike_data = binned_spike_data.astype(np.int32)
+assert binned_spike_data.dtype == int
+slds_expand.initialize(binned_spike_data,verbose=1)
+# Fit the model using Laplace-EM with a structured variational posterior
+q_lem_elbos_expand,q_lem_expanded = slds_expand.fit(binned_spike_data, method="laplace_em",
+                               variational_posterior="structured_meanfield",
+                               num_iters=50,initialize=False)
 
-    return ax
+# Plot ELBO of the model
+plt.figure()
+plt.plot(q_lem_elbos_expand[1:], label="Laplace-EM")
+
+plt.legend(loc="lower right")
+
+#% Save data
+fname = 'rsldsPerforamanceDLSDay9_expand'
+
+# Import required libraries
+from scipy.io import savemat
+from sklearn.metrics import adjusted_rand_score
+import os
+
+# Calculate ARI scores correctly
+#rslds_ari = adjusted_rand_score(true_states, rslds_states)  # Fixed: using rslds_states instead of xhat_lem
+
+
+rsldsData = {
+    'q_elbos': q_lem_elbos_expand,
+    'rslds_model': slds_expand
+}
+
+
+
+# Save multiple arrays and objects to an .npz file
+fileName = f"{fname}.npz"
+np.savez(f"{fname}.npz", rsldsData)
+print(f"Model data saved: {os.path.exists(fileName)}")
+# %%
+from ssm.plots import plot_dynamics_2d
+
+num_states = slds_expand.K  # Number of discrete states
+lim = abs(latent_dynamics).max(axis=0) + 4  # Define limits based on latent dynamics
+mins = (-lim[0], -lim[1])
+maxs = (lim[0], lim[1])
+import seaborn as sns
+color_names = ["windows blue", "red", "amber", "faded green"]
+colors = sns.xkcd_palette(color_names)
+
+for k in range(num_states):
+    # Extract dynamics for state k
+    dynamics_matrix = np.squeeze(slds_expand.dynamics.As[k, :, :])
+    dynamics_matrix = dynamics_matrix[:2,:2]
+    bias_vector = np.squeeze(slds_expand.dynamics.bs[k, :])
+    bias_vector = bias_vector[:2]
+    # Create a new figure for each state's flow field
+    plt.figure(figsize=(6, 6))
+    plot_dynamics_2d(dynamics_matrix, bias_vector, mins=mins, maxs=maxs,color=colors[k])
+    
+    # Overlay the latent dynamics trajectory
+    #plt.plot(sim_latent_smooth[:, 0], sim_latent_smooth[:, 1], '-k', lw=1)
+    
+    # Add title and labels
+    plt.title(f"Flow Field for State {k+1}")
+    plt.xlabel("Latent Dimension 1")
+    plt.ylabel("Latent Dimension 2")
+    plt.show()
+# %% Time constant of dynamic matrix eigenvalues
+from scipy.linalg import eig
+eigenVal = eig(slds_expand.dynamics.A)
+x = np.real(eigenVal[0])
+y = np.imag(eigenVal[0])
+# Color by position in array (dimension index)
+indices = np.arange(len(eigenVal[0]))
+# Normalize for colormap (optional, but recommended)
+norm_indices = (indices - indices.min()) / (indices.max() - indices.min())
+
+plt.figure(figsize=(6, 6))
+sc = plt.scatter(x, y, c=norm_indices, cmap='RdBu',
+                 edgecolors=[0.4,0.4,0.4],
+                 linewidths=0.1, s=40)
+plt.xlabel('Real')
+plt.ylabel('Imaginary')
+plt.title('Eigenvalues')
+# Create colorbar
+cb = plt.colorbar(sc, label='Dimension index')
+
+# Set colorbar ticks and labels to match dimension indices
+num_dims = len(eigenVal[0])
+tick_locs = np.linspace(0, 1, num_dims)  # positions in normalized range
+cb.set_ticks(tick_locs)
+cb.set_ticklabels([str(i) for i in range(num_dims)])
+
+
+plt.show()
+#%% Plot out time constants of eigenvalues
+time_constant = np.abs(1/np.log(np.abs(eigenVal[0])))
+dim = np.arange(len(time_constant))+1
+plt.figure(figsize=(6, 6))
+plt.bar(dim,time_constant)
+# %% Behavioural annotation of states
+# Here we want to figure out how each state coincodes
+# with the probability of a specific behaviour 
+# that the animal is undergoing
+# %%
+dynamics_matrix = np.array([(0.9, -0.3),(0.1,1)])
+bias_vector = np.array([0,0])
+mins = (-lim[0], -lim[1])
+maxs = (lim[0], lim[1])
+# Create a new figure for each state's flow field
+plt.figure(figsize=(6, 6))
+plot_dynamics_2d(dynamics_matrix, bias_vector)
+
+# Overlay the latent dynamics trajectory
+#plt.plot(sim_latent_smooth[:, 0], sim_latent_smooth[:, 1], '-k', lw=1)
+
+# Add title and labels
+plt.title(f"Flow Field for State")
+plt.xlabel("Latent Dimension 1")
+plt.ylabel("Latent Dimension 2")
+plt.show()
