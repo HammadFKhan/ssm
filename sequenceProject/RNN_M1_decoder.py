@@ -75,7 +75,18 @@ sigma = 1  # Smoothing parameter (in bins)
 bin_size_ms = 20  # Bin size in milliseconds
 # Compute firing rates - make sure binned_spike_data is shape (neurons, time)
 binned_spike_data = compute_binned_spike_data(spike_data, sigma, bin_size_ms)
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
+# Choose number of components for latent space (2-3 is good for visualization)
+n_components = 10
+
+# Fit PCA to the spike count data
+scaler = StandardScaler(with_std=False)
+smoothed_spikes_standardized = scaler.fit_transform(binned_spike_data)
+
+pca = PCA(n_components=n_components)
+latent_dynamics = pca.fit_transform(smoothed_spikes_standardized)
 
 num_timepoints_per_trial = n_time//bin_size_ms
 num_total_timepoints, numPC_show = binned_spike_data.shape
@@ -103,12 +114,12 @@ event_matrix = np.squeeze(np.stack((event_matrix,dt_traces),axis = 2))
 #%%
 
 # 2. Re-initialize Model 
-model = RNU.SimpleRNN(input_size=42, hidden_size=200, output_size=2)
+model = RNU.SimpleRNN(input_size=spks_decode.shape[2], hidden_size=20, output_size=1)
 # Define common parameters
 
 # Training hyperparameters
-epochs = 2000
-initial_lr = 0.001
+epochs = 100
+initial_lr = 0.0001
 lr_reduction_factor = 0.95
 lr_reduction_patience = 2000
 
@@ -116,7 +127,7 @@ lr_reduction_patience = 2000
 all_training_results = {}
 
 inputs = torch.tensor(spks_decode, dtype=torch.float32)  # inputs as float tensors
-targets = torch.tensor(event_matrix, dtype=torch.float32)  # targets as 
+targets = torch.tensor(dt_traces, dtype=torch.float32)  # targets as 
 print(f"\n--- Starting training for M1RNN---")
 # 3. Train Model
 trained_model, output_val, train_losses, val_losses, X_val, y_val = RNU.train_model(
@@ -176,35 +187,36 @@ plt.show()
 num_trials_to_plot = min(3, inputs.shape[0]) # Plot up to 3 trials
 time = range(inputs.shape[1])
 
-fig, axs = plt.subplots(num_trials_to_plot, 3, figsize=(15, 5 * num_trials_to_plot))
+fig, axs = plt.subplots(num_trials_to_plot,3, figsize=(15, 5 * num_trials_to_plot))
 plt.rcParams['pdf.fonttype'] = 42
 plt.rcParams['ps.fonttype'] = 42
 
 for trial_idx in range(num_trials_to_plot):
-    # Model Input
-    axs[trial_idx, 0].imagesc(time, inputs[trial_idx, :, 0].detach().cpu().numpy(), linestyle='--', color='blue')
-    axs[trial_idx, 0].set_title('Model Input')
-    axs[trial_idx, 0].set_ylabel(f'Trial {trial_idx+1}')
+    # Plot neural input spikes as heatmap on column 0
+    axs[trial_idx, 0].imshow(inputs[trial_idx].T, aspect='auto', cmap='viridis')
+    axs[trial_idx, 0].set_title(f'Trial {trial_idx} Input (Spikes)')
+    axs[trial_idx, 0].set_ylabel('Neuron')
 
-    # RNN Output
-    axs[trial_idx, 1].plot(time, output_val[trial_idx, :, 0].detach().cpu().numpy(), linestyle='--', label='Dim 1', color='blue')
-    axs[trial_idx, 1].plot(time, output_val[trial_idx, :, 1].detach().cpu().numpy(), linestyle='--', label='Dim 2', color='orange')
-    axs[trial_idx, 1].set_title('RNN Output')
-    if trial_idx == 0:
-        axs[trial_idx, 1].legend()
+    # Plot predicted output probabilities on column 1
+    axs[trial_idx, 1].plot(time, output_val[trial_idx, :, 0].detach().cpu().numpy(), linestyle='--', color='blue', label='Prediction')
+    axs[trial_idx, 1].set_title(f'Trial {trial_idx} Prediction')
+    axs[trial_idx, 1].set_ylabel('Probability')
 
-    # Target Output
-    axs[trial_idx, 2].plot(time, targets[trial_idx, :, 0].detach().cpu().numpy(), linestyle='--', label='Dim 1', color='blue')
-    axs[trial_idx, 2].plot(time, targets[trial_idx, :, 1].detach().cpu().numpy(), linestyle='--', label='Dim 2', color='orange')
-    axs[trial_idx, 2].plot(time, targets[trial_idx, :, 2].detach().cpu().numpy(), linestyle='--', label='Dim 3', color='green')
-    axs[trial_idx, 2].set_title('Target Output')
-    if trial_idx == 0:
-        axs[trial_idx, 2].legend()
+    # Plot ground truth target on column 2
+    axs[trial_idx, 2].plot(time, targets[trial_idx, :, 0].detach().cpu().numpy(), linestyle='-', color='red', label='Target')
+    axs[trial_idx, 2].set_title(f'Trial {trial_idx} Target')
 
-plt.xlabel('Timepoints')
-fig.suptitle(f'Input/Output/Target Comparison (Input Freq: {current_frequency})', y=1.02, fontsize=16)
+# Add legends to the first row's prediction and target plots
+axs[0, 1].legend()
+axs[0, 2].legend()
+
+# Add xlabel only to the bottom row of subplots
+for ax in axs[-1, :]:
+    ax.set_xlabel('Timepoints')
+
 plt.tight_layout()
-# Save figure
+plt.show()
+#%% Save figure
 filename = f"{filename_prefix}_freq_{str(current_frequency).replace('.', '_')}_comparison.pdf"
 plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
 print(f"Figure saved as {filename}")
@@ -242,4 +254,73 @@ plt.tight_layout()
 filename_3d_target = f"{filename_prefix}_freq_{str(current_frequency).replace('.', '_')}_3d_target.pdf"
 plt.savefig(filename_3d_target, format="pdf", bbox_inches="tight", transparent=True)
 print(f"Figure saved as {filename_3d_target}")
+plt.show()
+#%%
+X_torch = torch.tensor(spks_decode, dtype=torch.float32)
+y_torch = torch.tensor(np.squeeze(dt_traces), dtype=torch.float32)
+
+
+class MovementOnsetRNN(nn.Module):
+    def __init__(self, input_size, hidden_size=64):
+        super(MovementOnsetRNN, self).__init__()
+        self.rnn = nn.RNN(input_size, hidden_size, batch_first=True)
+        self.fc = nn.Linear(hidden_size, 1)
+        self.sigmoid = nn.Sigmoid()  # Sigmoid to get probabilities
+
+    def forward(self, x):
+        rnn_out, _ = self.rnn(x)  # rnn_out shape: (batch, seq, hidden_size)
+        logits = self.fc(rnn_out)  # (batch, seq, 1)
+        probs = self.sigmoid(logits)  # (batch, seq, 1)
+        return probs.squeeze(-1)  # (batch, seq)
+import torch.optim as optim
+
+# Hyperparameters
+hidden_size = 64
+lr = 0.001
+num_epochs = 20
+batch_size = 8
+
+# Model, optimizer, loss
+model = MovementOnsetRNN(input_size=n_neurons, hidden_size=hidden_size)
+optimizer = optim.Adam(model.parameters(), lr=lr)
+criterion = nn.BCELoss()
+
+# Simple DataLoader for batching
+from torch.utils.data import TensorDataset, DataLoader
+
+dataset = TensorDataset(X_torch, y_torch)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+model.train()
+for epoch in range(num_epochs):
+    epoch_loss = 0.0
+    for batch_X, batch_y in dataloader:
+        optimizer.zero_grad()
+        preds = model(batch_X)  # shape: (batch_size, n_timepoints)
+        loss = criterion(preds, batch_y)
+        loss.backward()
+        optimizer.step()
+        epoch_loss += loss.item() * batch_X.size(0)
+    avg_loss = epoch_loss / len(dataset)
+    print(f"Epoch {epoch+1}/{num_epochs} - Loss: {avg_loss:.6f}")
+
+model.eval()
+with torch.no_grad():
+    predictions = model(X_torch)  # (n_trials, n_timepoints)
+    predictions_np = predictions.cpu().numpy()
+#%%
+trial_idx = 10  # Choose a trial to visualize
+
+# Ground truth (binary 0/1)
+true_events = y_torch[trial_idx].cpu().numpy()  # Assuming y is Torch tensor
+# Predicted probabilities
+pred_probs = predictions[trial_idx].cpu().numpy()
+
+plt.figure(figsize=(12,4))
+plt.plot(true_events, label='True Movement Onsets', drawstyle='steps-post')
+plt.plot(pred_probs, label='Predicted Probabilities')
+plt.xlabel('Timepoint')
+plt.ylabel('Probability / Event')
+plt.title(f'Trial {trial_idx} Movement Onset Prediction')
+plt.legend()
 plt.show()
