@@ -18,8 +18,9 @@ import h5py
 
 
 #mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
-mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\DLS\Day10_DLS_warpedSpks.mat"
-
+#mat_file_path = r"D:\SequenceProject\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
+#mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\DLS\Day9_DLS_warpedSpks.mat"
+mat_file_path = r"D:\SequenceProject\WarpedSpikes\DLS\Day9_DLS_warpedSpks.mat"
 with h5py.File(mat_file_path, 'r') as f:
     # Access the 'warpedSpks' dataset (the MATLAB struct)
     warpedSpks = f['warpedSpks']
@@ -415,7 +416,7 @@ plt.plot(q_lem_elbos_expand[1:], label="Laplace-EM")
 plt.legend(loc="lower right")
 
 #% Save data
-fname = 'rsldsPerforamanceDLSDay10_expand'
+fname = 'rsldsPerforamanceDLSDay9_expand'
 
 # Import required libraries
 from scipy.io import savemat
@@ -437,6 +438,11 @@ rsldsData = {
 fileName = f"{fname}.npz"
 np.savez(f"{fname}.npz", rsldsData)
 print(f"Model data saved: {os.path.exists(fileName)}")
+#%% Load in expanded data
+loaded = np.load(r"D:\SequenceProject\WarpedSpikes\rsldsPerforamanceDLSDay9_expand.npz",allow_pickle=True)
+rsldsData = loaded['arr_0'].item()  # .item() gets the actual dictionary
+q_elbos = rsldsData['q_elbos']
+slds_expand = rsldsData['rslds_model']
 # %%
 from ssm.plots import plot_dynamics_2d
 
@@ -480,6 +486,7 @@ plt.figure(figsize=(6, 6))
 sc = plt.scatter(x, y, c=norm_indices, cmap='RdBu',
                  edgecolors=[0.4,0.4,0.4],
                  linewidths=0.1, s=40)
+plt.xlim(0.9,1)
 plt.xlabel('Real')
 plt.ylabel('Imaginary')
 plt.title('Eigenvalues')
@@ -491,8 +498,9 @@ num_dims = len(eigenVal[0])
 tick_locs = np.linspace(0, 1, num_dims)  # positions in normalized range
 cb.set_ticks(tick_locs)
 cb.set_ticklabels([str(i) for i in range(num_dims)])
-
-
+filename = f"{fSave}eigenValues.pdf"
+plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+print(f"Figure saved as {filename}")
 plt.show()
 #%% Plot out time constants of eigenvalues
 time_constant = np.abs(1/np.log(np.abs(eigenVal[0])))
@@ -504,16 +512,13 @@ plt.bar(dim,time_constant)
 # with the probability of a specific behaviour 
 # that the animal is undergoing
 # %%
-dynamics_matrix = np.array([(0.2, 0),(0,1)])
-print(dynamics_matrix)
+dynamics_matrix = np.array([(0.9, -0.3),(0.1,1)])
 bias_vector = np.array([0,0])
-mins = (-50, -50)
-maxs = (100, 40)
+mins = (-lim[0], -lim[1])
+maxs = (lim[0], lim[1])
 # Create a new figure for each state's flow field
 plt.figure(figsize=(6, 6))
-plot_dynamics_2d(dynamics_matrix, bias_vector,
-                 mins=(-40,-40),
-                 maxs=(100,40))
+plot_dynamics_2d(dynamics_matrix, bias_vector)
 
 # Overlay the latent dynamics trajectory
 #plt.plot(sim_latent_smooth[:, 0], sim_latent_smooth[:, 1], '-k', lw=1)
@@ -522,32 +527,4 @@ plot_dynamics_2d(dynamics_matrix, bias_vector,
 plt.title(f"Flow Field for State")
 plt.xlabel("Latent Dimension 1")
 plt.ylabel("Latent Dimension 2")
-plt.show()
-
-from scipy.linalg import eig
-eigenVal = eig(dynamics_matrix)
-x = np.real(eigenVal[0])
-y = np.imag(eigenVal[0])
-# Color by position in array (dimension index)
-indices = np.arange(len(eigenVal[0]))
-# Normalize for colormap (optional, but recommended)
-norm_indices = (indices - indices.min()) / (indices.max() - indices.min())
-
-plt.figure(figsize=(6, 6))
-sc = plt.scatter(x, y, c=norm_indices, cmap='RdBu',
-                 edgecolors=[0.4,0.4,0.4],
-                 linewidths=0.1, s=40)
-plt.xlabel('Real')
-plt.ylabel('Imaginary')
-plt.title('Eigenvalues')
-# Create colorbar
-cb = plt.colorbar(sc, label='Dimension index')
-
-# Set colorbar ticks and labels to match dimension indices
-num_dims = len(eigenVal[0])
-tick_locs = np.linspace(0, 1, num_dims)  # positions in normalized range
-cb.set_ticks(tick_locs)
-cb.set_ticklabels([str(i) for i in range(num_dims)])
-
-
 plt.show()
