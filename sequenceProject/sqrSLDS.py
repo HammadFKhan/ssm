@@ -18,7 +18,7 @@ import h5py
 
 
 #mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
-mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\DLS\Day9_DLS_warpedSpks.mat"
+mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\DLS\Day10_DLS_warpedSpks.mat"
 
 with h5py.File(mat_file_path, 'r') as f:
     # Access the 'warpedSpks' dataset (the MATLAB struct)
@@ -415,7 +415,7 @@ plt.plot(q_lem_elbos_expand[1:], label="Laplace-EM")
 plt.legend(loc="lower right")
 
 #% Save data
-fname = 'rsldsPerforamanceDLSDay9_expand'
+fname = 'rsldsPerforamanceDLSDay10_expand'
 
 # Import required libraries
 from scipy.io import savemat
@@ -504,13 +504,16 @@ plt.bar(dim,time_constant)
 # with the probability of a specific behaviour 
 # that the animal is undergoing
 # %%
-dynamics_matrix = np.array([(0.9, -0.3),(0.1,1)])
+dynamics_matrix = np.array([(0.2, 0),(0,1)])
+print(dynamics_matrix)
 bias_vector = np.array([0,0])
-mins = (-lim[0], -lim[1])
-maxs = (lim[0], lim[1])
+mins = (-50, -50)
+maxs = (100, 40)
 # Create a new figure for each state's flow field
 plt.figure(figsize=(6, 6))
-plot_dynamics_2d(dynamics_matrix, bias_vector)
+plot_dynamics_2d(dynamics_matrix, bias_vector,
+                 mins=(-40,-40),
+                 maxs=(100,40))
 
 # Overlay the latent dynamics trajectory
 #plt.plot(sim_latent_smooth[:, 0], sim_latent_smooth[:, 1], '-k', lw=1)
@@ -519,4 +522,32 @@ plot_dynamics_2d(dynamics_matrix, bias_vector)
 plt.title(f"Flow Field for State")
 plt.xlabel("Latent Dimension 1")
 plt.ylabel("Latent Dimension 2")
+plt.show()
+
+from scipy.linalg import eig
+eigenVal = eig(dynamics_matrix)
+x = np.real(eigenVal[0])
+y = np.imag(eigenVal[0])
+# Color by position in array (dimension index)
+indices = np.arange(len(eigenVal[0]))
+# Normalize for colormap (optional, but recommended)
+norm_indices = (indices - indices.min()) / (indices.max() - indices.min())
+
+plt.figure(figsize=(6, 6))
+sc = plt.scatter(x, y, c=norm_indices, cmap='RdBu',
+                 edgecolors=[0.4,0.4,0.4],
+                 linewidths=0.1, s=40)
+plt.xlabel('Real')
+plt.ylabel('Imaginary')
+plt.title('Eigenvalues')
+# Create colorbar
+cb = plt.colorbar(sc, label='Dimension index')
+
+# Set colorbar ticks and labels to match dimension indices
+num_dims = len(eigenVal[0])
+tick_locs = np.linspace(0, 1, num_dims)  # positions in normalized range
+cb.set_ticks(tick_locs)
+cb.set_ticklabels([str(i) for i in range(num_dims)])
+
+
 plt.show()
