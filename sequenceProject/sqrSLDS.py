@@ -18,9 +18,9 @@ import h5py
 
 
 #mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
-#mat_file_path = r"D:\SequenceProject\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
+mat_file_path = r"D:\SequenceProject\WarpedSpikes\M1\Day6_M1_warpedSpks.mat"
 #mat_file_path = r"D:\SQLever\Ephys\WarpedSpikes\DLS\Day9_DLS_warpedSpks.mat"
-mat_file_path = r"D:\SequenceProject\WarpedSpikes\DLS\Day9_DLS_warpedSpks.mat"
+#mat_file_path = r"D:\SequenceProject\WarpedSpikes\DLS\Day9_DLS_warpedSpks.mat"
 with h5py.File(mat_file_path, 'r') as f:
     # Access the 'warpedSpks' dataset (the MATLAB struct)
     warpedSpks = f['warpedSpks']
@@ -166,6 +166,52 @@ plt.figure()
 plt.plot(q_lem_elbos[1:], label="Laplace-EM")
 
 plt.legend(loc="lower right")
+
+#%% Save data
+# Import required libraries
+from scipy.io import savemat
+import os
+
+# Calculate ARI scores correctly
+#rslds_ari = adjusted_rand_score(true_states, rslds_states)  # Fixed: using rslds_states instead of xhat_lem
+
+# Create dictionaries with correct metrics
+groundTruthData = {
+    'binned_spike_data': binned_spike_data,
+    'latent_dynamics': latent_dynamics,
+    'originalFilepath': mat_file_path
+}
+
+rsldsData = {
+    'q_lem': q_lem,
+    'latent_states': q_lem_x,
+    'discrete_states': rslds_states,
+    'inferred_spikes':q_lem_y,
+    'transition_matrix': slds.transitions.transition_matrix,
+    'q_elbos': q_lem_elbos,
+    'rslds_model': slds
+}
+
+
+# Save to a single .mat file
+(path, file)  = os.path.split(mat_file_path)
+print('Saving file to',path)
+fname  = file[:-4]+'_rsldsModel'
+fileName = f"{path+fname}.npz"
+
+# Save multiple arrays and objects to an .npz file
+np.savez(fileName, rsldsData,groundTruthData)
+print(f"Model data saved: {os.path.exists(fileName)}")
+# %% Load data
+loaded = np.load(r"D:\SequenceProject\WarpedSpikes\M1Day6_M1_warpedSpks_rsldsModel.npz",allow_pickle=True)
+rsldsData = loaded['arr_0'].item()  # .item() gets the actual dictionary
+groundTruthData = loaded['arr_1'].item()  
+q_elbos = rsldsData['q_elbos']
+slds = rsldsData['rslds_model']
+rslds_states = rsldsData['discrete_states']
+latent_dynamics = groundTruthData['latent_dynamics']
+num_states = np.max(rslds_states)+1
+inferred_latent_dynamics = rsldsData['latent_states']
 #%% Plot out the data
 import getFigures as sqFig
 sqFig.plot_rslds_states(rslds_states,num_states,filename = f"{fSave}rslds_Discretestate.pdf")
@@ -278,47 +324,7 @@ sqFig.plot_transition_matrix(transition_matrix,filename = f"{fSave}Transition_st
 
 sqFig.plot_state_probability(rslds_states,filename = f"{fSave}_state_proportion.pdf")
 
-#%% Save data
-fname = 'rsldsPerforamanceM1Day6'
 
-# Import required libraries
-from scipy.io import savemat
-from sklearn.metrics import adjusted_rand_score
-import os
-
-# Calculate ARI scores correctly
-#rslds_ari = adjusted_rand_score(true_states, rslds_states)  # Fixed: using rslds_states instead of xhat_lem
-
-# Create dictionaries with correct metrics
-groundTruthData = {
-    'binned_spike_data': binned_spike_data,
-    'latent_dynamics': latent_dynamics
-}
-
-rsldsData = {
-    'latent_states': q_lem_x,
-    'discrete_states': rslds_states,
-    'inferred_spikes':q_lem_y,
-    'transition_matrix': slds.transitions.transition_matrix,
-    'q_elbos': q_lem_elbos,
-    'rslds_model': slds
-}
-
-# Combine all dictionaries into a single dictionary with nested structure
-allData = {
-    'groundTruth': groundTruthData,
-    'rslds': rsldsData
-}
-
-# Save to a single .mat file
-fileName = f"{fname}.mat"
-savemat(fileName, allData)
-
-print(f"Model data saved: {os.path.exists(fileName)}")
-
-# Save multiple arrays and objects to an .npz file
-np.savez(f"{fname}.npz", rsldsData,groundTruthData)
-print(f"Model data saved: {os.path.exists(fileName)}")
 # %% Plot each linear system
 from ssm.plots import plot_dynamics_2d
 # Iterate over all discrete states
@@ -378,15 +384,13 @@ def make_trials(neural_data,trial_time):
 _,latent_average = make_trials(inferred_latent_dynamics,250)
 plt.figure(figsize=(6,6))
 ax = plt.subplot(111)
-q_lem_scaled = inferred_latent_dynamics*10
-latent_average_scaled = latent_average
-lim = abs(latent_average_scaled).max(axis=0)+1
+lim = abs(inferred_latent_dynamics).max(axis=0)*2
 totalPullTimes = np.array([0,np.mean(pull1),np.mean(pull2),np.mean(pull3),np.mean(pull3)+500])//bin_size_ms
 totalPullTimes = totalPullTimes.astype(int)
 plot_most_likely_dynamics(slds, xlim=(-lim[0], lim[0]), ylim=(-lim[1], lim[1]), ax=ax)
-#plt.plot(q_lem_scaled, q_lem_scaled,'-k', lw=1,alpha = 0.3)
-plt.plot(latent_average_scaled[:,0], latent_average_scaled[:,1],'-k', lw=2,alpha = 0.5)
-plt.scatter(latent_average_scaled[totalPullTimes,0],latent_average_scaled[totalPullTimes,1],s=24,c='green')
+plt.plot(inferred_latent_dynamics[:,0], inferred_latent_dynamics[:,1],'-k', lw=1,alpha = 0.3)
+plt.plot(latent_average[:,0], latent_average[:,1],'-k', lw=2,alpha = 0.5)
+plt.scatter(latent_average[totalPullTimes,0],latent_average[totalPullTimes,1],s=24,c='green')
 plt.title("Sequence Dynamics")
 filename = f"{fSave}likely_state.pdf"
 plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
@@ -405,38 +409,52 @@ binned_spike_data = binned_spike_data.astype(np.int32)
 assert binned_spike_data.dtype == int
 slds_expand.initialize(binned_spike_data,verbose=1)
 # Fit the model using Laplace-EM with a structured variational posterior
-q_lem_elbos_expand,q_lem_expanded = slds_expand.fit(binned_spike_data, method="laplace_em",
+q_lem_elbos,q_lem= slds_expand.fit(binned_spike_data, method="laplace_em",
                                variational_posterior="structured_meanfield",
                                num_iters=50,initialize=False)
 
 # Plot ELBO of the model
 plt.figure()
-plt.plot(q_lem_elbos_expand[1:], label="Laplace-EM")
+plt.plot(q_lem_elbos[1:], label="Laplace-EM")
 
 plt.legend(loc="lower right")
 
-#% Save data
-fname = 'rsldsPerforamanceDLSDay9_expand'
+# Get the posterior mean of the continuous states
+q_lem_x = q_lem.mean_continuous_states[0]
 
+# Find the permutation that matches the true and inferred states
+rslds_states = slds.most_likely_states(q_lem_x, binned_spike_data)
+
+# Smooth the data under the variational posterior
+q_lem_y = slds.smooth(q_lem_x, binned_spike_data)
+#% Save data
 # Import required libraries
 from scipy.io import savemat
-from sklearn.metrics import adjusted_rand_score
 import os
 
 # Calculate ARI scores correctly
 #rslds_ari = adjusted_rand_score(true_states, rslds_states)  # Fixed: using rslds_states instead of xhat_lem
 
+# Create dictionaries with correct metrics
 
 rsldsData = {
-    'q_elbos': q_lem_elbos_expand,
+    'q_lem': q_lem,
+    'latent_states': q_lem_x,
+    'discrete_states': rslds_states,
+    'inferred_spikes':q_lem_y,
+    'transition_matrix': slds.transitions.transition_matrix,
+    'q_elbos': q_lem_elbos,
     'rslds_model': slds_expand
 }
 
-
+# Save to a single .mat file
+(path, file)  = os.path.split(mat_file_path)
+print('Saving file to',path)
+fname  = file[:-4]+'_rsldsModel_expand'
+fileName = f"{path+fname}.npz"
 
 # Save multiple arrays and objects to an .npz file
-fileName = f"{fname}.npz"
-np.savez(f"{fname}.npz", rsldsData)
+np.savez(fileName, rsldsData)
 print(f"Model data saved: {os.path.exists(fileName)}")
 #%% Load in expanded data
 loaded = np.load(r"D:\SequenceProject\WarpedSpikes\rsldsPerforamanceDLSDay9_expand.npz",allow_pickle=True)
