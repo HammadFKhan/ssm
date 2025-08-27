@@ -184,7 +184,9 @@ def plot_inferred_spks(binned_spike_data,inferred_spike_dynamics):
     plt.tight_layout()  # Improves spacing
     plt.show()
 
-def plot_inferred_population(binned_spike_data,inferred_spike_data,filename = "Inferred_Spike_state.pdf"):
+def plot_inferred_population(binned_spike_data,inferred_spike_data,
+                             x_min = 0,x_max = 5500,
+                             filename = "Inferred_Spike_state.pdf"):
     plt.rcParams['pdf.fonttype'] = 42
     plt.rcParams['ps.fonttype'] = 42
      # Create publication-quality figure with better dimensions
@@ -219,7 +221,7 @@ def plot_inferred_population(binned_spike_data,inferred_spike_data,filename = "I
 
     # Add gridlines
     axs[1].grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
-    axs[1].set_xlim(0,5500)
+    axs[1].set_xlim(x_min,x_max)
     # Custom colorbar for smooth data
     cbar2 = fig.colorbar(im2, ax=axs[1], fraction=0.046, pad=0.04)
     cbar2.set_label("Inferred Spike Count", fontsize=12)
