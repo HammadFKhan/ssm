@@ -172,7 +172,7 @@ fname  = file[:-4]+'_rsldsModel'
 fileName = f"{path+fname}.npz"
 
 # Save multiple arrays and objects to an .npz file
-np.savez(fileName, rsldsData,groundTruthData)
+np.savez(fileName, rsldsData=rsldsData,groundTruthData=groundTruthData)
 print(f"Model data saved: {os.path.exists(fileName)}")
 
 # %% Here we want to retrain the model to extract the 
@@ -193,19 +193,16 @@ q_lem_elbos,q_lem= slds_expand.fit(binned_spike_data, method="laplace_em",
                                num_iters=50,initialize=False)
 
 # Plot ELBO of the model
-plt.figure()
-plt.plot(q_lem_elbos[1:], label="Laplace-EM")
-
-plt.legend(loc="lower right")
+print('Elbos model performance:',q_lem_elbos[-1:])
 
 # Get the posterior mean of the continuous states
 q_lem_x = q_lem.mean_continuous_states[0]
 
 # Find the permutation that matches the true and inferred states
-rslds_states = slds.most_likely_states(q_lem_x, binned_spike_data)
+rslds_states = slds_expand.most_likely_states(q_lem_x, binned_spike_data)
 
 # Smooth the data under the variational posterior
-q_lem_y = slds.smooth(q_lem_x, binned_spike_data)
+q_lem_y = slds_expand.smooth(q_lem_x, binned_spike_data)
 #% Save data
 # Import required libraries
 from scipy.io import savemat
@@ -233,5 +230,5 @@ fname  = file[:-4]+'_rsldsModel_expand'
 fileName = f"{path+fname}.npz"
 
 # Save multiple arrays and objects to an .npz file
-np.savez(fileName, rsldsData)
+np.savez(fileName, rsldsData=rsldsData)
 print(f"Model data saved: {os.path.exists(fileName)}")
