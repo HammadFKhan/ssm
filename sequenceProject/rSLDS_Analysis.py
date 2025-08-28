@@ -22,8 +22,8 @@ from sklearn.metrics import adjusted_rand_score
 npr.seed(0)
 import h5py
 # %% Load data
-#loaded = np.load(r"D:\SequenceProject\WarpedSpikes\M1Day6_M1_warpedSpks_rsldsModel.npz",allow_pickle=True)
-loaded = np.load(r"D:\SequenceProject\WarpedSpikes\DLSDay9_DLS_warpedSpks_rsldsModel.npz",allow_pickle=True)
+loaded = np.load(r"D:\SequenceProject\WarpedSpikes\M1Day6_M1_warpedSpks_rsldsModel.npz",allow_pickle=True)
+#loaded = np.load(r"D:\SequenceProject\WarpedSpikes\DLSDay9_DLS_warpedSpks_rsldsModel.npz",allow_pickle=True)
 
 rsldsData = loaded['arr_0'].item()  # .item() gets the actual dictionary
 groundTruthData = loaded['arr_1'].item()  
@@ -397,20 +397,7 @@ plt.tight_layout()
 filename = f"{fSave}_state_aligned_latent.pdf"
 plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
 plt.show()
-#%%
-from scipy.signal import correlate
 
-# mean_response: array for a specific state's average aligned response
-autocorr = correlate(mean_resp - np.mean(mean_resp), mean_resp - np.mean(mean_resp), mode='full')
-lags = np.arange(-len(mean_resp)+1, len(mean_resp))
-
-plt.figure()
-plt.plot(lags, autocorr)
-plt.xlabel('Lag (time points)')
-plt.ylabel('Autocorrelation')
-plt.title(f'Autocorrelation of State {state} Aligned Signal')
-plt.tight_layout()
-plt.show()
 #%%
 # pulls: 3 x timepoints binary array (1 = pull, 0 = no pull)
 pull_1 = totalPullTimes[0, :]  # first pull row
@@ -468,7 +455,7 @@ post_window = 200
 window_len = pre_window + post_window + 1
 time_axis = np.arange(-pre_window, post_window + 1) * bin_size_ms
 num_pulls = 1  # e.g. 3 pulls
-
+avg_rel_time = []
 fig, axs = plt.subplots(1, num_pulls, figsize=(5 * num_pulls, 4), sharey=True)
 
 for pull_num in range(num_pulls):
@@ -484,13 +471,13 @@ for pull_num in range(num_pulls):
     # Calculate average relative times of subsequent pulls within the window
     align_pull_times = totalPullTimes[pull_num, :]  # reference align pull times
     
-    for next_pull_num in range(pull_num + 1, num_pulls):
+    for next_pull_num in range(pull_num + 1, 4):
         next_pull_times = totalPullTimes[next_pull_num, :]
         # Compute relative times of next pulls relative to current aligned pull
         relative_times = next_pull_times - align_pull_times
         # Keep only those that fall within the plotting window
-        valid_times = relative_times[(relative_times >= -pre_window) & (relative_times <= post_window)]
-        avg_rel_time = np.mean(valid_times) * bin_size_ms  # convert to ms
+        valid_times = np.mean(relative_times[(relative_times >= -pre_window) & (relative_times <= post_window)]) * bin_size_ms
+        avg_rel_time.append(valid_times)  # convert to ms
 
     if len(aligned_states_around_pulls) > 0:
         state_probabilities = {state: np.mean(aligned_states_around_pulls == state, axis=0) for state in unique_states}
@@ -506,7 +493,11 @@ for pull_num in range(num_pulls):
     for i, state in enumerate(unique_states):
         ax.plot(time_axis, state_probabilities[state], label=f'State {state}', color=state_colors[i])
     ax.axvline(0, color='gray', linestyle='--', linewidth=1)
-    ax.axvline(avg_rel_time, color='gray', linestyle='--', linewidth=1, alpha=0.7)
+    for n in range(len(avg_rel_time)):
+        if n == len(avg_rel_time)-1:
+            ax.axvline(avg_rel_time[n], color='blue', linestyle='--', linewidth=1, alpha=0.7)
+        else:
+            ax.axvline(avg_rel_time[n], color='gray', linestyle='--', linewidth=1, alpha=0.7)
     ax.set_xlabel('(ms)')
     if pull_num == 0:
         ax.set_ylabel('State Probability')
@@ -514,8 +505,9 @@ for pull_num in range(num_pulls):
     if pull_num == 3:
         ax.set_title(f'Reward')
     ax.legend()
-
 plt.tight_layout()
+filename = f"{fSave}_pull_aligned_state.pdf"
+plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
 plt.show()
 # %% Plot each linear system
 from ssm.plots import plot_dynamics_2d
