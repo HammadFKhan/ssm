@@ -22,6 +22,7 @@ from sklearn.metrics import adjusted_rand_score
 npr.seed(0)
 import h5py
 # %% Load data
+#loaded = np.load(r"D:\SequenceProject\WarpedSpikes\M1Day6_M1_warpedSpks_rsldsModel.npz",allow_pickle=True)
 loaded = np.load(r"D:\SequenceProject\WarpedSpikes\DLSDay9_DLS_warpedSpks_rsldsModel.npz",allow_pickle=True)
 
 rsldsData = loaded['arr_0'].item()  # .item() gets the actual dictionary
@@ -211,19 +212,21 @@ totalPullTimes = np.array([pull1,pull2,pull3])//bin_size_ms
 totalPullTimes = totalPullTimes.squeeze()
 ymin = np.max(leverTrace)
 for n in range(totalPullTimes.shape[1]):
-     axs[2].vlines(totalPullTimes[:,n]+(250*n), ymin, ymin+0.04, colors='k', linestyles='-')
+     totalPullTimes[:,n]= totalPullTimes[:,n]+(250*n)
+     axs[2].vlines(totalPullTimes[:,n], ymin, ymin+0.04, colors='k', linestyles='-')
 # Set x-axis limits for both subplots (optional)
 # Add shared x-axis label
 axs[2].set_xlabel("Time Bins", fontsize=12)
-axs[2].set_xlim(10000,13000)
+axs[2].set_xlim(0,3000)
 
 filename = f"{fSave}rslds_states.pdf"
 plt.tight_layout()
 plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
 print(f"Figure saved as {filename}")
 plt.show()
+
 # %%
-sqFig.plot_inferred_population(binned_spike_data,q_lem_y,x_min=10000,x_max = 15000,filename = f"{fSave}Inferred_Spike_state.pdf")
+sqFig.plot_inferred_population(binned_spike_data,q_lem_y,x_min=0,x_max = 3000,filename = f"{fSave}Inferred_Spike_state.pdf")
 
 sqFig.plot_trial_inferred_spks(binned_spike_data,q_lem_y,inferred_latent_dynamics,
                              trial_time = 250,
@@ -272,7 +275,7 @@ sqFig.plot_transition_matrix(transition_matrix,filename = f"{fSave}Transition_st
 
 sqFig.plot_state_probability(rslds_states,filename = f"{fSave}_state_proportion.pdf")
 
-# Find run boundaries and states
+#%% Find run boundaries and states
 changes = np.diff(rslds_states) != 0
 run_starts = np.insert(np.where(changes)[0] + 1, 0, 0)
 run_ends = np.append(np.where(changes)[0], len(rslds_states) - 1)
@@ -283,18 +286,236 @@ unique_states = np.unique(rslds_states)
 avg_duration = []
 for state in unique_states:
     durations = run_lengths[run_states == state]
-    avg_duration.append(np.mean(durations))
+    avg_duration.append(np.mean(durations)*bin_size_ms)
 
 # Plot
 plt.figure()
 plt.bar(unique_states, avg_duration, tick_label=unique_states)
 plt.xlabel('State')
-plt.ylabel('Average Duration (time points)')
+plt.ylabel('Average Duration')
 plt.title('Average Duration of Each State')
-
 plt.tight_layout()
 filename = f"{fSave}_state_duration.pdf"
 plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+plt.show()
+# %% State dependant dynamics of behavior
+
+# Assuming:
+# rslds_states: 1D array of states (length T)
+# latent_dynamics: 2D array with shape (T, features), you align on latent_dynamics[:, 2]
+# pre_window, post_window defined as in your code
+from scipy.signal import correlate
+plt.rcParams['pdf.fonttype'] = 42
+plt.rcParams['ps.fonttype'] = 42
+unique_states = sorted(set(rslds_states))  # Get all unique states, sorted for consistent order
+pre_window = 50
+post_window = 200
+window_len = pre_window + post_window + 1
+
+aligned_responses_dict = {}  # key: state, value: list of aligned windows
+latent_aligned_responses_dict = {}
+lever_aligned_responses_dict = {}
+changes = np.diff(rslds_states, prepend=rslds_states[0]-1) != 0
+aligned_responses_dict = {}
+changes = np.diff(rslds_states, prepend=rslds_states[0]-1) != 0
+
+for state in unique_states:
+    onsets = np.where((rslds_states == state) & changes)[0]
+    latent_windows = []
+    lever_windows = []
+    for onset in onsets:
+        start = onset - pre_window
+        end = onset + post_window + 1  # slice end exclusive
+        
+        # Check bounds
+        if (start >= 0) and (end <= len(latent_dynamics[:, 0])) and (end <= len(leverTrace)):
+            latent_window = latent_dynamics[:, 0][start:end]
+            lever_window = leverTrace[start:end]
+            latent_windows.append(latent_window)
+            lever_windows.append(lever_window)
+    
+    aligned_responses_dict[state] = {
+        'latent': np.array(latent_windows),
+        'lever': np.array(lever_windows)
+    }
+# Define colors to match your donut chart
+ # Colors (customize as needed)
+state_colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+# Example: suppose you have a list of aligned responses (one for each state)
+# aligned_responses_dict[state] = np.array(num_trials x window_len)
+# window_len, pre_window as defined earlier
+
+time_axis = np.arange(-pre_window, post_window + 1) * bin_size_ms
+
+fig, axs = plt.subplots(1, 3, figsize=(15, 4))
+
+# Subplot 1: Lever aligned responses with SEM
+for state, data in aligned_responses_dict.items():
+    lever_responses = data['lever']
+    mean_resp = np.mean(lever_responses, axis=0)
+    sem_resp = np.std(lever_responses, axis=0) / np.sqrt(lever_responses.shape[0])
+    axs[0].plot(time_axis, mean_resp, label=f'State {state}', color=state_colors[state])
+    axs[0].fill_between(time_axis, mean_resp - sem_resp, mean_resp + sem_resp,
+                        color=state_colors[state], alpha=0.2)
+axs[0].axvline(0, color='gray', linestyle='--', linewidth=1)
+axs[0].set_xlabel('(s)')
+axs[0].set_ylabel('Lever Aligned Response')
+axs[0].set_title('Lever State-Aligned Responses')
+axs[0].legend()
+
+# Subplot 2: Latent aligned responses with SEM
+for state, data in aligned_responses_dict.items():
+    latent_responses = data['latent']
+    mean_resp = np.mean(latent_responses, axis=0)
+    sem_resp = np.std(latent_responses, axis=0) / np.sqrt(latent_responses.shape[0])
+    axs[1].plot(time_axis, mean_resp, label=f'State {state}', color=state_colors[state])
+    axs[1].fill_between(time_axis, mean_resp - sem_resp, mean_resp + sem_resp,
+                        color=state_colors[state], alpha=0.2)
+axs[1].axvline(0, color='gray', linestyle='--', linewidth=1)
+axs[1].set_xlabel('(s)')
+axs[1].set_ylabel('Latent Aligned Response')
+axs[1].set_title('Latent State-Aligned Responses')
+axs[1].legend()
+
+# Subplot 3: Cross-correlation of mean lever and latent responses per state
+for state, data in aligned_responses_dict.items():
+    lever_mean = np.mean(data['lever'], axis=0)
+    latent_mean = np.mean(data['latent'], axis=0)
+    # Center signals
+    lever_mean_centered = lever_mean - np.mean(lever_mean)
+    latent_mean_centered = latent_mean - np.mean(latent_mean)
+    cross_corr = correlate(latent_mean_centered,lever_mean_centered, mode='full')
+    cross_corr /= np.max(np.abs(cross_corr))  # normalize
+    lags = np.arange(-len(lever_mean) + 1, len(lever_mean)) * bin_size_ms
+    axs[2].plot(lags, cross_corr, label=f'State {state}', color=state_colors[state])
+axs[2].set_xlabel('Lag (s)')
+axs[2].set_ylabel('Normalized Cross-correlation')
+axs[2].set_title('Cross-correlation Lever vs Latent')
+axs[2].legend()
+
+plt.tight_layout()
+filename = f"{fSave}_state_aligned_latent.pdf"
+plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+plt.show()
+#%%
+from scipy.signal import correlate
+
+# mean_response: array for a specific state's average aligned response
+autocorr = correlate(mean_resp - np.mean(mean_resp), mean_resp - np.mean(mean_resp), mode='full')
+lags = np.arange(-len(mean_resp)+1, len(mean_resp))
+
+plt.figure()
+plt.plot(lags, autocorr)
+plt.xlabel('Lag (time points)')
+plt.ylabel('Autocorrelation')
+plt.title(f'Autocorrelation of State {state} Aligned Signal')
+plt.tight_layout()
+plt.show()
+#%%
+# pulls: 3 x timepoints binary array (1 = pull, 0 = no pull)
+pull_1 = totalPullTimes[0, :]  # first pull row
+inputs = np.concatenate((pull1,pull2,pull3),axis = 1)
+inputs = pull3
+inputs = inputs//bin_size_ms
+event_matrix = np.zeros((n_trials, 250))
+for trial in range(n_trials):
+    for pull_time in inputs[trial]:
+        event_matrix[trial, pull_time:pull_time+1] = 1  # Or use real-valued feature
+event_matrix = np.reshape(event_matrix,-1)
+
+aligned_pull_prob_dict = {}
+changes = np.diff(rslds_states, prepend=rslds_states[0]-1) != 0
+
+for state in unique_states:
+    onsets = np.where((rslds_states == state) & changes)[0]
+    aligned_pulls = []
+    for onset in onsets:
+        start = onset - pre_window
+        end = onset + post_window + 1  # slice end exclusive
+        if (start >= 0) and (end <= len(event_matrix)):
+            window = event_matrix[start:end]
+            aligned_pulls.append(window)
+    aligned_pulls = np.array(aligned_pulls)
+    
+    # Calculate probability of pull at each time point (mean across occurrences)
+    pull_prob = np.mean(aligned_pulls, axis=0)
+    aligned_pull_prob_dict[state] = pull_prob
+    
+time_axis = np.arange(-pre_window, post_window + 1) * bin_size_ms
+
+plt.figure(figsize=(6,4))
+for state, pull_prob in aligned_pull_prob_dict.items():
+    plt.plot(time_axis, pull_prob, label=f'State {state}', color=state_colors[state])
+
+plt.axvline(0, color='gray', linestyle='--', linewidth=1)
+plt.xlabel('(ms)')
+plt.ylabel('Probability of Pull')
+plt.title('Pull Probability Aligned to State Onsets (Pull 1)')
+plt.legend()
+plt.tight_layout()
+plt.show()
+#%%
+# pulls: 3 x timepoints binary array (1 = pull, 0 = no pull)
+totalPullTimes = np.array([pull1,pull2,pull3-500,pull3])//bin_size_ms
+totalPullTimes = totalPullTimes.squeeze()
+for n in range(totalPullTimes.shape[1]):
+     totalPullTimes[:,n]= totalPullTimes[:,n]+(250*n)
+
+# Pull 1 row (binary vector)
+unique_states = np.unique(rslds_states)
+pre_window = 50
+post_window = 200
+window_len = pre_window + post_window + 1
+time_axis = np.arange(-pre_window, post_window + 1) * bin_size_ms
+num_pulls = 1  # e.g. 3 pulls
+
+fig, axs = plt.subplots(1, num_pulls, figsize=(5 * num_pulls, 4), sharey=True)
+
+for pull_num in range(num_pulls):
+    aligned_states_around_pulls = []
+    pulls = totalPullTimes[pull_num, :]
+    for idx in pulls:
+        start = idx - pre_window
+        end = idx + post_window + 1
+        if start >= 0 and end <= len(rslds_states):
+            window = rslds_states[start:end]
+            aligned_states_around_pulls.append(window)
+    aligned_states_around_pulls = np.array(aligned_states_around_pulls)
+    # Calculate average relative times of subsequent pulls within the window
+    align_pull_times = totalPullTimes[pull_num, :]  # reference align pull times
+    
+    for next_pull_num in range(pull_num + 1, num_pulls):
+        next_pull_times = totalPullTimes[next_pull_num, :]
+        # Compute relative times of next pulls relative to current aligned pull
+        relative_times = next_pull_times - align_pull_times
+        # Keep only those that fall within the plotting window
+        valid_times = relative_times[(relative_times >= -pre_window) & (relative_times <= post_window)]
+        avg_rel_time = np.mean(valid_times) * bin_size_ms  # convert to ms
+
+    if len(aligned_states_around_pulls) > 0:
+        state_probabilities = {state: np.mean(aligned_states_around_pulls == state, axis=0) for state in unique_states}
+    else:
+        state_probabilities = {state: np.zeros(window_len) for state in unique_states}
+    # Normalization: subtract mean prewindow probability per state
+    '''
+    for state in unique_states:
+        prewindow_mean = np.mean(state_probabilities[state][:pre_window])
+        state_probabilities[state] = state_probabilities[state] - prewindow_mean
+    '''
+    ax = axs[pull_num] if num_pulls > 1 else axs
+    for i, state in enumerate(unique_states):
+        ax.plot(time_axis, state_probabilities[state], label=f'State {state}', color=state_colors[i])
+    ax.axvline(0, color='gray', linestyle='--', linewidth=1)
+    ax.axvline(avg_rel_time, color='gray', linestyle='--', linewidth=1, alpha=0.7)
+    ax.set_xlabel('(ms)')
+    if pull_num == 0:
+        ax.set_ylabel('State Probability')
+    ax.set_title(f'Pull {pull_num + 1}')
+    if pull_num == 3:
+        ax.set_title(f'Reward')
+    ax.legend()
+
+plt.tight_layout()
 plt.show()
 # %% Plot each linear system
 from ssm.plots import plot_dynamics_2d
@@ -353,7 +574,7 @@ def make_trials(neural_data,trial_time):
 
         return spike_data_trials,trial_average
 _,latent_average = make_trials(inferred_latent_dynamics,250)
-latent_average = latent_average*25
+latent_average = latent_average*10
 plt.figure(figsize=(6,6))
 ax = plt.subplot(111)
 lim = abs(latent_average).max(axis=0)*1.3
