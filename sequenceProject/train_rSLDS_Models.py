@@ -75,7 +75,7 @@ def train_rslds_from_mat(mat_file_path, save_path):
     warp_spk = np.transpose(warp_spk, (3,2,1,0))
     [n_trials,n_time,n_neurons,nPulls] = warp_spk.shape
     #%%
-    warp_spk_ref = warp_spk[:,:,:,2]
+    warp_spk_ref = warp_spk[:,:,:,2] # We take the third aligned pull
     spike_data = warp_spk_ref.reshape(n_time*n_trials,n_neurons)
     #spike_data = np.load(r"D:\SequenceProject\WarpedSpikes\M1\Day6_rslds_test.npy")
 
@@ -244,4 +244,4 @@ def batch_train_rslds(directory_path):
     print(f'Trained and saved {len(mat_files)} models to {models_dir}')
 
 
-batch_train_rslds(r'D:\SQLever\Ephys\WarpedSpikes\DLS')
+batch_train_rslds(r'Y:\Hammad\Ephys\SeqProject\ForceField\warpedSpks_sessions')
