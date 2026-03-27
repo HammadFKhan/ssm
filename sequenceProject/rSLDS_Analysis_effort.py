@@ -4,6 +4,14 @@ This script performs a post-hoc analysis of a trained rsLDS model.
 It reloads behavioral and neural spike data, then extracts model parameters
 and latent variables from the trained model. Finally, it calls a series of
 plotting and analysis functions to visualize and interpret the model's output.
+
+Update 10/6/2025: We have changed the load in of the data without the affine warping. 
+The data is now analyzed as a function of task outcome when aligned to the first pull 
+
+For this pipeline we are doing analysis as a function of effort trials. We can use the 
+same approach for other task outcomes in other files or something... or we create
+a function call to make everything easier. 
+
 """
 #%% 
 # Imports and sets up the environment for a Switching Linear Dynamical System (SLDS) analysis.
@@ -19,13 +27,16 @@ from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm  # Import tqdm for loading bar
 from scipy.io import savemat
 from sklearn.metrics import adjusted_rand_score
+
+import os
 npr.seed(0)
 import h5py
 # %% Load data
 #loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\DLS\rslds_models\Day9_DLS_warpedSpks_rsldsModel.npz",allow_pickle=True)
 #loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\DLS\rslds_models\Day8_DLS_warpedSpks_rsldsModel.npz",allow_pickle=True)
-loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\M1\rslds_models\Day6_M1_warpedSpks_rsldsModel.npz",allow_pickle=True)
-#loaded = np.load(r"Y:\Hammad\Ephys\SeqProject\ForceField\warpedSpks_sessions\rslds_models\Mouse4_Day13_DLS_Spikes_warpedSpks_rsldsModel.npz",allow_pickle=True)
+#loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\M1\rslds_models\Day6_M1_warpedSpks_rsldsModel.npz",allow_pickle=True)
+filename = r"Y:\Hammad\Ephys\SeqProject\ForceField\rsldsSpks_sessions\rslds_models_new\Mouse4_Day16_DLS_Spikes_rsldsSpks_rsldsModel.npz"
+loaded = np.load(filename,allow_pickle=True)
 
 print(list(loaded.keys()))
 rsldsData = loaded['rsldsData'].item()  # .item() gets the actual dictionary
@@ -43,69 +54,122 @@ q_lem_y = rsldsData['inferred_spikes']
 
 with h5py.File(mat_file_path, 'r') as f:
     # Access the 'warpedSpks' dataset (the MATLAB struct)
-    warpedSpks = f['warpedSpks']
+    warpedSpks = f['rsldsSpikes']
     print(f.keys())
-    intan_behaviour = f['IntanBehaviour']
-    hit = intan_behaviour['hitTrace']
-    print(hit.keys())  # just to verify available fields
-    hit_trace = hit['trace']
-
-    # Flatten reference array for easy iteration
-    refs = hit_trace[:].flatten()
-
-    # Extract all traces as a list of numpy arrays
-    all_traces = [f[ref][:] for ref in refs]
-
-    # Optionally, stack into a 2D or 3D NumPy array if dimensions match
-    # For example, if each trace is (timepoints,), stack into (n_trials, timepoints)
-    all_traces_array = np.squeeze(np.stack(all_traces))
-
-    print(f"Extracted {len(all_traces)} traces")
-    print(f"Shape of single trace: {all_traces[0].shape}")
-    print(f"Shape of stacked array: {all_traces_array.shape}")
-    # Dereference to get the struct group
-    struct = f['warpedSpks' ]
+    struct = f['rsldsSpikes' ]
     print("Fields in the struct:")
     print(list(struct.keys()))  # Should list all fields, including 'warpedSpikes'
 
     # Access the 'warpedSpikes' field
-    warp_spk = struct['warpSpikes'][:]
-
-    structp = struct['pull3A']
-    pull1 = structp['pull1'][:]
-    pull2 = structp['pull2'][:]
-    pull3 = structp['pull3'][:]
-        
+    perturbbehav = struct['hiteffortperturb']
+    print(list(perturbbehav.keys()))
+    #structp = struct['pull3A']
+    pull1 = perturbbehav['pull1'][:]
+    pull2 = perturbbehav['pull2'][:]
+    pull3 = perturbbehav['pull3'][:]
+    isnoeffort = perturbbehav['isnoeffort'][:]
+    leverTraces = perturbbehav['leverTraces'][:]
+    print("\n--- Extracted Pull Data ---")  
+    print(f"Shape of leverTraces: {leverTraces.shape}")
     # Typically, the struct array contains references
     # Get the first struct in the array (adjust the index for your case)
-    struct_ref = 'warpedSpks' # or [0] if 1D
-    
-    # Dereference to get the struct group
-    struct = f[struct_ref]
-    
-    print("Fields in the struct:")
-    print(list(struct.keys()))  # Should list all fields, including 'warpedSpikes'
     
     # Access the 'warpedSpikes' field
-    warp_spk = struct['warpSpikes'][:]
+    task_spikes_refs = struct['taskSpikes'][:]
+    task_labels = struct['taskLabel'][:]
     
-    # Dereference again to get the actual 3D array data
-    #print(f"Shape of warpedSpikes array: {warpedSpikes_data.shape}")
-    # Now, warpedSpikes_data is a NumPy array with your 3D data
+    # 3. Handle the dimensions of the cell array.
+    # A 1xN MATLAB cell array will be a (1, N) NumPy array of references.
+    # You need to flatten it to iterate over the individual cell references.
+    task_spikes_refs_flat = task_spikes_refs.flatten()
+    task_labels = task_labels.flatten()
+    # 4. Loop through the references to dereference and access the data.
+    # This will give you a list of the contents of each cell.
+    rslds_spk = []
+    for ref in task_spikes_refs_flat:
+        # Dereference the object reference and read the data
+        cell_content = f[ref][:]
+        rslds_spk.append(cell_content)
 
-# Load in warp data and wrangle it into what we need it to be
-#warp_spk = np.load(r"D:\SequenceProject\WarpedSpikes\DLS\Day9_DLS_warpedSpks_rslds.npy")
-#warp_spk = np.load(r"D:\SequenceProject\WarpedSpikes\M1\Day6_M1_warpedSpks_rslds.npy")
+    task_lb = []
+    for ref in task_labels:
+        # Dereference and extract data (likely uint16)
+        char_arr = f[ref][:]
+        # Convert to Python string
+        label = ''.join([chr(c) for c in char_arr.flatten() if c != 0])
+        task_lb.append(label)
+    # 5. Process the extracted cell data.
+    # For a list of 3D arrays, this list will contain each array.
+    if rslds_spk:
+        print("\n--- Extracted Data ---")
+        print("Number of task variables:", len(rslds_spk))
+        print("Task labels:", task_lb)
+        print("Shape of the first cell's array:", rslds_spk[0].shape)
+        
+        # Dereference again to get the actual 3D array data
+        #print(f"Shape of warpedSpikes array: {warpedSpikes_data.shape}")
+        # Now, warpedSpikes_data is a NumPy array with your 3D data
 
-fSave = 'Figures\Mouse4Day6M1_'
-warp_spk = np.transpose(warp_spk, (3,2,1,0))
-[n_trials,n_time,n_neurons,nPulls] = warp_spk.shape
+    # Load in warp data and wrangle it into what we need it to be
+    #warp_spk = np.load(r"D:\SequenceProject\WarpedSpikes\DLS\Day9_DLS_warpedSpks_rslds.npy")
+    #warp_spk = np.load(r"D:\SequenceProject\WarpedSpikes\M1\Day6_M1_warpedSpks_rslds.npy")
+spk = rslds_spk[3] # Take the effort and no effort trials that are combined from the model
+spk_ref = np.transpose(spk, (2,1,0))
+
+[n_trials,n_time,n_neurons] = spk_ref.shape
+print("\n--- Extracted Data ---")
+print("Number of trials:", n_trials)
+print("Time for each trial:", n_time)
+print("Number of neurons:", n_neurons)
+
+fSave = r'Figures\\EffortPerturbation\\'
+# concatenate fsave with the name of the matfile without the extension
+fSave = os.path.join(fSave, os.path.splitext(os.path.basename(mat_file_path))[0])
+# make folder directory if fsave location does not exist
+os.makedirs(fSave, exist_ok=True)
+# print the save location
+print(f"Figures will be saved to: {fSave}")
+assert leverTraces.shape[0] == n_trials, "Number of trials in the lever trace does not match number of trials in spk_ref"
 
 #%%
-warp_spk_ref = warp_spk[:,:,:,2]
-spike_data = warp_spk_ref.reshape(n_time*n_trials,n_neurons)
-#spike_data = np.load(r"D:\SequenceProject\WarpedSpikes\M1\Day6_rslds_test.npy")
 
+# Example variables (from your code/data)
+# spk_ref: shape (n_trials, n_time, n_neurons)
+# isnoeffort: shape (n_trials,)
+
+# Convert isnoeffort to a boolean mask if needed
+isnoeffort = np.array(isnoeffort).flatten()
+# Index for effort and no effort
+effort_mask = isnoeffort == 0
+noeffort_mask = isnoeffort == 1
+
+# Separate data by trial type
+spk_effort = spk_ref[effort_mask, :, :]     # (n_effort_trials, n_time, n_neurons)
+spk_noeffort = spk_ref[noeffort_mask, :, :] # (n_noeffort_trials, n_time, n_neurons)
+
+# OR, flatten if you want time x neurons 2D for each:
+spk_effort_flatten = spk_effort.reshape(-1, spk_ref.shape[2])
+spk_noeffort_flatten = spk_noeffort.reshape(-1, spk_ref.shape[2])
+spk_flatten = spk_ref.reshape(-1, spk_ref.shape[2])
+# seperate lever data by trial type
+lever_effort = leverTraces[effort_mask, :]     # (n_effort_trials, n_time)
+lever_noeffort = leverTraces[noeffort_mask, :] # (n_noeffort_trials, n_time)
+
+print('Effort shape:', spk_effort.shape)
+print('No Effort shape:', spk_noeffort.shape)
+print('Lever Effort shape:', lever_effort.shape)
+print('Lever No Effort shape:', lever_noeffort.shape)
+
+assert spk_effort.shape[0] == lever_effort.shape[0], "Number of effort trials in spike data does not match lever data"
+assert spk_noeffort.shape[0] == lever_noeffort.shape[0], "Number of no effort trials in spike data does not match lever data"
+# We next have to format the rslds models correctly to conduct the analysis that we want
+
+#%% Here we assign the effort and non effort data
+
+# spike_data = spk_ref.reshape(n_time*n_trials,n_neurons)
+spike_data = spk_flatten
+#spike_data = np.load(r"D:\SequenceProject\WarpedSpikes\M1\Day6_rslds_test.npy")
+all_traces_array = leverTraces
 print(spike_data.shape)
 # Transpose data here
 # original data should be neuronsxtime
@@ -153,9 +217,22 @@ sort_idx[:len(pos_idx)] = pos_idx[np.argsort(-pc_weights[0, pos_idx])]
 sort_idx[len(pos_idx):] = neg_idx[np.argsort(pc_weights[0, neg_idx])]
 
 leverTrace = np.reshape(all_traces_array, all_traces_array.shape[0]*all_traces_array.shape[1])
-leverTrace = leverTrace[1::bin_size_ms]
+# normalize leverTrace to be between 0 and 1
+def bin_lever_trace(leverTrace, bin_size_ms=10):
+    n_timebins = len(leverTrace)
+    n_bins = n_timebins // bin_size_ms
+    n_timebins_trimmed = n_bins * bin_size_ms
+    leverTrace = leverTrace[:n_timebins_trimmed]
+    # mean or some other stat per bin
+    leverTrace_binned = leverTrace.reshape(n_bins, bin_size_ms).mean(axis=1)
+    return leverTrace_binned
+leverTrace = bin_lever_trace(leverTrace, bin_size_ms=bin_size_ms)
 leverTrace = gaussian_filter1d(leverTrace*100, 5)/100
-
+leverTrace = (leverTrace - np.min(leverTrace)) / (np.max(leverTrace) - np.min(leverTrace))
+# print the shape of the lever trace and rslds states to make sure they match and binned spike states
+print(f"Lever trace shape: {leverTrace.shape}")
+print(f"RSLDS states shape: {rslds_states.shape}")
+print(f"Binned spike data shape: {binned_spike_data.shape}")
 #%% Show Plots by PC loading weights
 
 from hammad.Fig_SimSpike import plot_spikes_pca, plot_state_transitions
@@ -267,7 +344,7 @@ sqFig.plot_traj_spk_video(q_lem_y,x,leverTrace,
                         start_interval = 20,
                         end_interval = 10,
                         speedup_duration = 1000,
-                        fname = f"{fSave}traj_videoDLSMouse4.mp4")
+                        fname = f"{fSave}traj_videoDLS3.mp4")
 
 
 #%%
@@ -291,9 +368,33 @@ for state in unique_states:
     durations = run_lengths[run_states == state]
     avg_duration.append(np.mean(durations)*bin_size_ms)
 
+state_colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+# plot out histrogram of durations for this state
+fig, axs = plt.subplots(1,len(unique_states), figsize=(9, 3))
+if len(unique_states) == 1:
+    axs = [axs]  # Handle single state case
+
+for idx, state in enumerate(unique_states):
+    durations = run_lengths[run_states == state]
+    axs[idx].hist(durations*bin_size_ms, bins=20, color=state_colors[state], alpha=0.7, edgecolor='black')
+    axs[idx].set_xlabel('Duration (ms)')
+    axs[idx].set_ylabel('Frequency')
+    axs[idx].set_title(f'Duration Distribution for State {state}')
+    # print mean duration on the plot
+    mean_duration = np.mean(durations)*bin_size_ms
+    axs[idx].text(0.95, 0.95, f'Mean: {mean_duration:.1f} ms', transform=axs[idx].transAxes,
+                    fontsize=10, verticalalignment='top', horizontalalignment='right')
+
+plt.tight_layout()
+filename = f"{fSave}_state_duration_hist.pdf"
+#plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+plt.show()
+
+
 # Plot
 plt.figure()
-plt.bar(unique_states, avg_duration, tick_label=unique_states)
+# color code bars by state
+plt.bar(unique_states, avg_duration, tick_label=unique_states, color=state_colors)
 plt.xlabel('State')
 plt.ylabel('Average Duration (ms)')
 plt.title('Average Duration of Each State')
@@ -301,6 +402,7 @@ plt.tight_layout()
 filename = f"{fSave}_state_duration.pdf"
 plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
 plt.show()
+
 # %% State dependant dynamics of behavior
 
 # Assuming:
@@ -361,7 +463,7 @@ for state, data in aligned_responses_dict.items():
     axs[0].fill_between(time_axis, mean_resp - sem_resp, mean_resp + sem_resp,
                         color=state_colors[state], alpha=0.2)
 axs[0].axvline(0, color='gray', linestyle='--', linewidth=1)
-axs[0].set_xlabel('(s)')
+axs[0].set_xlabel('(ms)')
 axs[0].set_ylabel('Lever Aligned Response')
 axs[0].set_title('Lever State-Aligned Responses')
 axs[0].legend()
@@ -403,49 +505,6 @@ plt.show()
 
 #%%
 # pulls: 3 x timepoints binary array (1 = pull, 0 = no pull)
-pull_1 = totalPullTimes[0, :]  # first pull row
-inputs = np.concatenate((pull1,pull2,pull3),axis = 1)
-inputs = pull1
-inputs = inputs//bin_size_ms
-event_matrix = np.zeros((n_trials, 250))
-for trial in range(n_trials):
-    for pull_time in inputs[trial]:
-        event_matrix[trial, pull_time:pull_time+1] = 1  # Or use real-valued feature
-event_matrix = np.reshape(event_matrix,-1)
-
-aligned_pull_prob_dict = {}
-changes = np.diff(rslds_states, prepend=rslds_states[0]-1) != 0
-
-for state in unique_states:
-    onsets = np.where((rslds_states == state) & changes)[0]
-    aligned_pulls = []
-    for onset in onsets:
-        start = onset - pre_window
-        end = onset + post_window + 1  # slice end exclusive
-        if (start >= 0) and (end <= len(event_matrix)):
-            window = event_matrix[start:end]
-            aligned_pulls.append(window)
-    aligned_pulls = np.array(aligned_pulls)
-    
-    # Calculate probability of pull at each time point (mean across occurrences)
-    pull_prob = np.mean(aligned_pulls, axis=0)
-    aligned_pull_prob_dict[state] = pull_prob
-    
-time_axis = np.arange(-pre_window, post_window + 1) * bin_size_ms
-
-plt.figure(figsize=(6,4))
-for state, pull_prob in aligned_pull_prob_dict.items():
-    plt.plot(time_axis, pull_prob, label=f'State {state}', color=state_colors[state])
-
-plt.axvline(0, color='gray', linestyle='--', linewidth=1)
-plt.xlabel('(ms)')
-plt.ylabel('Probability of Pull')
-plt.title('Pull Probability Aligned to State Onsets (Pull 1)')
-plt.legend()
-plt.tight_layout()
-plt.show()
-#%%
-# pulls: 3 x timepoints binary array (1 = pull, 0 = no pull)
 totalPullTimes = np.array([pull1,pull2,pull3-500,pull3])//bin_size_ms
 totalPullTimes = totalPullTimes.squeeze()
 for n in range(totalPullTimes.shape[1]):
@@ -453,8 +512,8 @@ for n in range(totalPullTimes.shape[1]):
 
 # Pull 1 row (binary vector)
 unique_states = np.unique(rslds_states)
-pre_window = 50
-post_window = 200
+pre_window = 49
+post_window = 199
 window_len = pre_window + post_window + 1
 time_axis = np.arange(-pre_window, post_window + 1) * bin_size_ms
 num_pulls = 1  # e.g. 3 pulls
@@ -467,6 +526,8 @@ for pull_num in range(num_pulls):
     for idx in pulls:
         start = idx - pre_window
         end = idx + post_window + 1
+        start = int(start)
+        end = int(end)
         if start >= 0 and end <= len(rslds_states):
             window = rslds_states[start:end]
             aligned_states_around_pulls.append(window)
@@ -539,57 +600,27 @@ axs[1].set_title("Emission matrix C", fontsize=14, fontweight='bold')
 
 # Add gridlines to help identify neuron positions
 axs[0].grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
+# %% Plot out rslds states during effort and non effort periods
+# First plot out aligned states around pulls
+# plot aligned states around pulls
+state_colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+fig = plt.subplots(1, 1, figsize=(6, 6))
+# imshow of aligned states around pulls only 3 states for better visualization
+cmap = ListedColormap(state_colors)
+plt.imshow(aligned_states_around_pulls, aspect='auto', cmap=cmap, vmin=0, vmax=2)
+plt.colorbar(label='State', ticks=[0, 1, 2])
+plt.xlabel('Time (s)')
+plt.ylabel('Trials')
+plt.title('RSLS States Aligned to Pulls')
+filename = f"{fSave}_pull_aligned_states.pdf"
+#plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+
+# display unique values in aligned_states_around_pulls
+unique_values = np.unique(aligned_states_around_pulls)
+print(f"Unique states in aligned data: {unique_values}")
 
 
 
-# Example emission matrix: C (replace with your actual data)
-C = abs(np.squeeze(slds.emissions.Cs))
-sorted_indices = np.argsort(-C[:, 0])  # Sort by contribution to the first dimension
-
-fig = plt.figure(figsize=(8, 7))
-gs = fig.add_gridspec(2, 2, height_ratios=[1, 4], width_ratios=[1, 1], hspace=0.15, wspace=0.1)
-
-# Top left: neuron weights for the first dimension
-ax0 = fig.add_subplot(gs[0, 0])
-abs_weights = np.abs(C[:, 0])
-ax0.stem(np.arange(len(abs_weights)), abs_weights, basefmt=" ")
-ax0.set_ylabel("Weight (abs)", fontsize=11)
-ax0.set_xticks([])
-ax0.set_title("Single-cell contribution\nof dimension (L1)", fontsize=12)
-ax0.spines['right'].set_visible(False)
-ax0.spines['top'].set_visible(False)
-
-# Bottom left: heatmap of emission matrix, neurons sorted by first dimension
-ax1 = fig.add_subplot(gs[1, 0])
-im = ax1.imshow(C[sorted_indices, :], aspect='auto', cmap='viridis', interpolation='none')
-ax1.set_ylabel("Neurons (sorted)", fontsize=11)
-ax1.set_xlabel("Dimension", fontsize=11) 
-ax1.set_title('Emission matrix C', fontsize=12)
-ax1.grid(False)
-
-# Add colorbar
-# Bottom right: (Optional) Include unsorted version or another representation if desired
-sorted_indices = np.argsort(-C[:, 1])  # Sort by contribution to the first dimension
-ax2 = fig.add_subplot(gs[1, 1])
-im2 = ax2.imshow(C[sorted_indices, :], aspect='auto', cmap='viridis', interpolation='none')
-ax2.set_title('Emission matrix C', fontsize=12)
-
-ax2.set_xlabel('Dimension', fontsize=11)
-ax2.grid(False)
-plt.colorbar(im2, ax=ax2, orientation='vertical', fraction=0.05, pad=0.04, label='Weight (abs)')
-
-# Top right: hide axis if not needed
-ax3 = fig.add_subplot(gs[0, 1])
-abs_weights = np.abs(C[:, 1])
-ax3.stem(np.arange(len(abs_weights)), abs_weights, basefmt=" ")
-
-ax3.set_xticks([])
-ax3.set_title("Single-cell contribution\nof dimension (L2)", fontsize=12)
-ax3.spines['right'].set_visible(False)
-ax3.spines['top'].set_visible(False)
-
-plt.tight_layout()
-plt.show()
 # %% Plot each linear system
 from ssm.plots import plot_dynamics_2d
 # Iterate over all discrete states
@@ -652,11 +683,11 @@ _,latent_average = make_trials(inferred_latent_dynamics,250)
 latent_average = latent_average
 plt.figure(figsize=(6,6))
 ax = plt.subplot(111)
-lim = abs(latent_average).max(axis=0)*1.3
-totalPullTimes = np.array([0,np.mean(pull1),np.mean(pull2),np.mean(pull3),np.mean(pull3)+500])//bin_size_ms
+lim = abs(latent_average).max(axis=0)*13
+totalPullTimes = np.array([0,np.nanmean(pull1),np.nanmean(pull2),np.nanmean(pull3),np.nanmean(pull3)+500])//bin_size_ms
 totalPullTimes = totalPullTimes.astype(int)
 plot_most_likely_dynamics(slds, xlim=(-lim[0], lim[0]), ylim=(-lim[1], lim[1]), ax=ax)
-#plt.plot(inferred_latent_dynamics[:,0], inferred_latent_dynamics[:,1],'-k', lw=1,alpha = 0.3)
+plt.plot(inferred_latent_dynamics[:,0], inferred_latent_dynamics[:,1],'-k', lw=1,alpha = 0.3)
 plt.plot(latent_average[:,0], latent_average[:,1],'-k', lw=2,alpha = 0.5)
 plt.scatter(latent_average[totalPullTimes,0],latent_average[totalPullTimes,1],s=24,c='green')
 plt.title("Sequence Dynamics")
@@ -999,6 +1030,7 @@ dynamics_matrix = np.array([(0.9, 0),(0.0,.1)])
 bias_vector = np.array([0,0])
 
 from scipy.linalg import eig
+from matplotlib.colors import ListedColormap
 a1, a2 = eigenVal  # eigenvalues less than 1 for stability
 x1_0, x2_0 = 30, -35
 x = np.array([x1_0, x2_0])
@@ -1060,4 +1092,5 @@ ax.set_ylabel("Latent Dimension 2")
 plt.tight_layout()
 filename = f"{fSave}_state_flow.pdf"
 plt.show()
+
 # %%

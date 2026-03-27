@@ -35,6 +35,132 @@ from matplotlib.patches import Rectangle
 from matplotlib.colors import ListedColormap
 
 
+def plot_spikes_pca(binned_spike_counts,pca,latent_dynamics,filename=None):
+
+    plt.rcParams['pdf.fonttype'] = 42
+    plt.rcParams['ps.fonttype'] = 42
+    from scipy.ndimage import gaussian_filter1d
+    # Get PC weights (loadings) for each neuron
+    # In sklearn, components_ is of shape (n_components, n_features)
+    pc_weights = pca.components_  # Each row is a PC, each column is a neuron
+
+    # Create a sorting index based on PC weights
+    # Sort neurons primarily by their PC1 weights, then PC2, then PC3
+    # First, let's group by sign of PC1
+    pc1_positive = pc_weights[0] > 0
+    pc1_negative = ~pc1_positive
+
+    # Within each group, sort by magnitude of PC1 weight
+    sort_idx = np.zeros(pc_weights.shape[1], dtype=int)
+    pos_idx = np.where(pc1_positive)[0]
+    neg_idx = np.where(pc1_negative)[0]
+
+    # Sort positive PC1 neurons by decreasing weight
+    sort_idx[:len(pos_idx)] = pos_idx[np.argsort(-pc_weights[0, pos_idx])]
+    # Sort negative PC1 neurons by increasing weight (most negative first)
+    sort_idx[len(pos_idx):] = neg_idx[np.argsort(pc_weights[0, neg_idx])]
+    # Create figure with adjusted layout
+    fig = plt.figure(figsize=(18, 12))
+    gs = gridspec.GridSpec(2, 6, height_ratios=[3, 1], 
+                        width_ratios=[7, 0.2, 0.6, 0.6, 0.6, 0.6],  # Adjusted width ratios
+                        wspace=0.15, hspace=0.25)  # Increased spacing between rows
+
+    # Assume binned_spike_counts and sort_idx are already defined
+    # Calculate lower and upper color axis limits using percentiles
+    vmin = np.percentile(binned_spike_counts, 0.01)
+    vmax = np.percentile(binned_spike_counts, 99)
+
+    # Main spike data heatmap
+    ax_spikes = plt.subplot(gs[0, 0])
+    im1 = ax_spikes.imshow(np.transpose(binned_spike_counts[:, sort_idx]), 
+                        aspect='auto', 
+                        cmap='plasma',
+                        interpolation='none',
+                        vmin=vmin,     # lower limit
+                        vmax=vmax      # upper limit
+                        )
+    ax_spikes.set_title("Spiking Activity", fontsize=14, fontweight='bold')
+    ax_spikes.set_ylabel("Neurons (sorted by PC weights)", fontsize=12)
+    ax_spikes.set_xticklabels([])
+    ax_spikes.set_xlim(0,3000)
+    # Colorbar - directly attached to spike plot
+    ax_cbar = plt.subplot(gs[0, 1])
+    cbar = plt.colorbar(im1, cax=ax_cbar)
+    cbar.set_label("Spike Count", fontsize=10)
+
+    # Create three separate PC weight plots (aligned with variance explained plot)
+    pc_colors = [('darkred', 'indianred'), ('navy', 'royalblue'), ('darkgreen', 'mediumseagreen')]
+    ax_weights = []
+
+    for i in range(3):
+        ax = plt.subplot(gs[0, i+3])  # Align with columns of variance explained plot
+        ax_weights.append(ax)
+        
+        weights = pc_weights[i, sort_idx]
+        pos_mask = weights > 0
+        neg_mask = weights < 0
+        
+        if np.any(pos_mask):
+            ax.barh(np.arange(len(sort_idx))[pos_mask], 
+                weights[pos_mask], 
+                height=0.8, color=pc_colors[i][1])
+        
+        if np.any(neg_mask):
+            ax.barh(np.arange(len(sort_idx))[neg_mask], 
+                weights[neg_mask], 
+                height=0.8, color=pc_colors[i][0])
+        
+        ax.set_title(f"PC{i+1}", fontsize=12)
+        ax.set_ylim(ax_spikes.get_ylim())
+        ax.set_yticks([])
+        ax.set_xticks([])
+        ax.axvline(x=0, color='k', linestyle='-', alpha=0.5)
+        
+        max_abs_weight = max(abs(pc_weights[:3, sort_idx].min()), pc_weights[:3, sort_idx].max())
+        ax.set_xlim(-max_abs_weight*1, max_abs_weight*1)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+
+    # Latent dynamics trajectories - make full width
+    ax_latent = plt.subplot(gs[1, 0:2])  # Span across first two columns for width
+    for i in range(min(3, latent_dynamics.shape[1])):
+        ax_latent.plot(latent_dynamics[:, i], label=f'PC{i+1}', color=pc_colors[i][1])
+    ax_latent.set_title("Latent Dynamics", fontsize=14, fontweight='bold')
+    ax_latent.set_xlabel("Time Bins", fontsize=12)
+    ax_latent.set_ylabel("PC Score", fontsize=12)
+    ax_latent.legend(loc='upper right', bbox_to_anchor=(1.1, 1), borderaxespad=0)
+    ax_latent.grid(True, alpha=0.3)
+    ax_latent.spines['top'].set_visible(False)
+    ax_latent.spines['right'].set_visible(False)
+    ax_latent.set_xlim(0,3000)
+
+    # Variance explained panel aligned with PC histograms
+    ax_var = plt.subplot(gs[1, 3:])
+    explained_var = pca.explained_variance_ratio_ * 100
+    cumulative_var = np.cumsum(explained_var)
+
+    ax_var.bar(range(1, len(explained_var)+1), explained_var, color='gray', alpha=0.7)
+
+    ax_var2 = ax_var.twinx()
+    ax_var2.plot(range(1, len(cumulative_var)+1), cumulative_var, 'o-', color='black', 
+                linewidth=2, markersize=4)
+    ax_var2.set_ylim([0, 90])
+    ax_var2.tick_params(axis='y', which='both', right=False, labelright=False)
+
+    ax_var.set_xlabel('PC', fontsize=12)
+    ax_var.set_ylabel('Variance Explained (%)', fontsize=12)
+    ax_var.set_title('Variance Explained', fontsize=14, fontweight='bold')
+    ax_var.set_box_aspect(1)  # Make the plot square
+    ax_var.set_ylim([0, 90])
+    plt.tight_layout()
+    if filename:
+        plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+        print(f"Figure saved as {filename}")
+    else:
+        print('Figure was not saved')
+        plt.show()
+
 def plot_rslds_states(rslds_states,num_states,filename = "rslds_Discretestate.pdf"):
     """
     Call figures for RSLDS sq tasks

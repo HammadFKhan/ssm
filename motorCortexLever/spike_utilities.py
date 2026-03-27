@@ -32,3 +32,13 @@ def compute_binned_spike_data(spike_data, sigma = 5, bin_size_ms = 10):
         smoothed_spike_data[:,i] = gaussian_filter1d(current_neuron * scale_factor, sigma=sigma)
     
     return smoothed_spike_data
+
+def bin_lever_trace(leverTrace, bin_size_ms=10):
+    n_timebins = len(leverTrace)
+    n_bins = n_timebins // bin_size_ms
+    n_timebins_trimmed = n_bins * bin_size_ms
+    leverTrace = leverTrace[:n_timebins_trimmed]
+    # mean or some other stat per bin
+    leverTrace_binned = leverTrace.reshape(n_bins, bin_size_ms).mean(axis=1)
+    print("Binned data shape:", leverTrace_binned.shape)
+    return leverTrace_binned
