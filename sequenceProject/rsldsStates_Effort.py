@@ -2,6 +2,7 @@
 # Imports and sets up the environment for a Switching Linear Dynamical System (SLDS) analysis.
 import autograd.numpy as np
 import autograd.numpy.random as npr
+from numpy import cumsum
 from scipy.stats import nbinom
 import matplotlib.pyplot as plt
 from ssm.util import rle, find_permutation
@@ -398,6 +399,7 @@ n_trials = rslds_states.shape[0]
 n_states = int(rslds_states.max()) + 1  # or set manually
 
 mean_dur = np.full((n_trials, n_states), np.nan)
+se_mean_dur = np.full((n_trials, n_states), np.nan)
 
 for trial in range(n_trials):
     states, durations = state_durations[trial]
@@ -405,23 +407,54 @@ for trial in range(n_trials):
         mask = (states == s)
         if np.any(mask):
             mean_dur[trial, s] = durations[mask].mean()/rslds_states.shape[1]  # Normalize by trial length to get percentage of trial spent in each state
+            # calculate standard error of the mean duration for each state across trials
+            se_mean_dur[trial, s] = (durations[mask].std() / np.sqrt(np.sum(mask)))/rslds_states.shape[1]  # Standard error of the mean
             mean_dur = np.nan_to_num(mean_dur, nan=0.0)
 
-
+# smooth mean_dur across trials for each state
+for s in range(n_states):
+    mean_dur[:, s] = gaussian_filter1d(mean_dur[:, s], sigma=2)
+    se_mean_dur[:, s] = gaussian_filter1d(se_mean_dur[:, s], sigma=2)
 trials = np.arange(n_trials)
 
-plt.figure(figsize=(8, 5))
-for s in range(n_states):
-    plt.plot(trials, mean_dur[:, s], label=f"State {s}", alpha=0.7)
+fig, axes = plt.subplots(2, 1, figsize=(8, 8), sharex=True)
 
-# overlab vertical lines where an effort trial occurs
+# ---------- Top: state persistence ----------
+ax1 = axes[0]
+
+for s in range(n_states):
+    ax1.plot(trials, mean_dur[:, s], label=f"State {s}", alpha=0.7)
+    #ax1.fill_between(trials, mean_dur[:, s] - se_mean_dur[:, s], mean_dur[:, s] + se_mean_dur[:, s], alpha=0.2)
 for trial in range(n_trials):
     if isnoeffort[trial] == 0:  # Effort trial
-        plt.axvline(x=trial, color='red', alpha=0.3, linestyle='--')
-        
-plt.xlabel("Trial")
-plt.ylabel("Mean state duration (% of trial)")
-plt.title("State persistence across trials")
-plt.legend()
+        ax1.axvline(x=trial, color='black', alpha=0.1, linestyle='--')
+
+ax1.set_ylabel("Mean state duration\n(% of trial)")
+ax1.set_title("State persistence across trials")
+ax1.legend()
+
+# ---------- Bottom: cumulative effort trials ----------
+ax2 = axes[1]
+
+effort_indicator = (isnoeffort == 0).astype(int)
+window_size = 10
+c = np.cumsum(effort_indicator)  # length n_trials
+moving_sum = np.empty_like(effort_indicator, dtype=float)
+for i in range(len(effort_indicator)):
+    start = max(0, i - window_size + 1)
+    if start == 0:
+        moving_sum[i] = c[i]
+    else:
+        moving_sum[i] = c[i] - c[start - 1]
+
+# optional: convert to fraction in window
+moving_frac = moving_sum / np.minimum(window_size, np.arange(len(effort_indicator)) + 1)
+# filter moving_frac with gaussian filter for smoother plot
+moving_frac = gaussian_filter1d(moving_frac, sigma=2)
+ax2.plot(trials, moving_frac, color='red')
+ax2.set_xlabel("Trial")
+ax2.set_ylabel("Cumulative effort\ntrials")
+ax2.set_title("Cumulative number of effort trials")
+
 plt.tight_layout()
 plt.show()
