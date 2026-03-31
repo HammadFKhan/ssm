@@ -35,7 +35,8 @@ import h5py
 #loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\DLS\rslds_models\Day9_DLS_warpedSpks_rsldsModel.npz",allow_pickle=True)
 #loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\DLS\rslds_models\Day8_DLS_warpedSpks_rsldsModel.npz",allow_pickle=True)
 #loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\M1\rslds_models\Day6_M1_warpedSpks_rsldsModel.npz",allow_pickle=True)
-filename = r"Y:\Hammad\Ephys\SeqProject\ForceField\rsldsSpks_sessions\rslds_models_new\Mouse4_Day16_DLS_Spikes_rsldsSpks_rsldsModel.npz"
+filename = r"Y:\Hammad\Ephys\SeqProject\ForceField\rsldsSpks_sessions\rslds_models_new\Mouse4_Day17_DLS_Spikes_rsldsSpks_rsldsModel.npz"
+#filename = r"Y:\Hammad\Ephys\SeqProject\ForceField\rsldsSpks_sessions\rslds_models_new_inputdriven\Mouse4_Day17_DLS_Spikes_rsldsSpks_rsldsModel.npz"
 loaded = np.load(filename,allow_pickle=True)
 
 print(list(loaded.keys()))
@@ -625,7 +626,7 @@ print(f"Unique states in aligned data: {unique_values}")
 from ssm.plots import plot_dynamics_2d
 # Iterate over all discrete states
 num_states = slds.K  # Number of discrete states
-lim = abs(latent_dynamics).max(axis=0) + 50 # Define limits based on latent dynamics
+lim = abs(latent_dynamics).max(axis=0) # Define limits based on latent dynamics
 mins = (-lim[0], -lim[1])
 maxs = (lim[0], lim[1])
 import seaborn as sns
@@ -695,11 +696,68 @@ filename = f"{fSave}likely_state.pdf"
 plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
 print(f"Figure saved as {filename}")
 plt.show()
+# %%
+from scipy.linalg import eig
+n = 0 # state index
+eigenVal = eig(slds.dynamics.As[n,:,:])
+x = np.real(eigenVal[0])
+y = np.imag(eigenVal[0])
+# Color by position in array (dimension index)
+indices = np.arange(len(eigenVal[0]))
+# Normalize for colormap (optional, but recommended)
+norm_indices = (indices - indices.min()) / (indices.max() - indices.min())
+plt.figure(figsize=(6, 6))
+sc = plt.scatter(x, y, c=norm_indices, cmap='RdBu',
+                 edgecolors=[0.4,0.4,0.4],
+                 linewidths=0.1, s=40)
+#plt.xlim(0.1,1)
+plt.xlabel('Real')
+plt.ylabel('Imaginary')
+plt.title('Eigenvalues')
+# Create colorbar
+cb = plt.colorbar(sc, label='Dimension index')
+
+# Set colorbar ticks and labels to match dimension indices
+num_dims = len(eigenVal[0])
+tick_locs = np.linspace(0, 1, num_dims)  # positions in normalized range
+cb.set_ticks(tick_locs)
+cb.set_ticklabels([str(i) for i in range(num_dims)])
+filename = f"{fSave}eigenValues.pdf"
+plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
+print(f"Figure saved as {filename}")
+plt.show()
+
+from scipy.linalg import eig
+# Here we only grab the L1 and L2 dim for visualization to the model
+colors = sns.xkcd_palette(color_names)
+
+plt.figure(figsize=(6, 6))
+indices = np.arange(num_states)
+norm_indices = (indices - indices.min()) / (indices.max() - indices.min())
+scatter_handles = []
+
+for k in range(num_states):
+    dynamics_matrix = np.squeeze(slds.dynamics.As[k, :, :])[:2, :2]
+    eigenVal = eig(dynamics_matrix)
+    x = np.real(eigenVal[0])
+    y = np.imag(eigenVal[0])
+    color_val = norm_indices[k]
+    sc = plt.scatter(x, y, c=colors[k],
+                     edgecolors=[0.4,0.4,0.4],
+                     linewidths=0.1, s=40)
+    plt.ylim(-0.5,0.5)
+    scatter_handles.append(sc)  # Optional: gather for colorbar
+
+plt.legend([f'State {k+1}' for k in range(num_states)], loc='upper right')
+plt.xlabel('Real')
+plt.ylabel('Imaginary')
+plt.title('Eigenvalues')
 # %% Here we want to retrain the model to extract the 
 # latent contineous states and their corresponding eigen values 
 #%% Load in expanded data
 #loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\DLS\rslds_models\Day9_DLS_warpedSpks_rsldsModel_expand.npz",allow_pickle=True)
-loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\M1\rslds_models\Day6_M1_warpedSpks_rsldsModel_expand.npz",allow_pickle=True)
+#loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\M1\rslds_models\Day6_M1_warpedSpks_rsldsModel_expand.npz",allow_pickle=True)
+loaded = np.load(r"Y:\Hammad\Ephys\SeqProject\ForceField\rsldsSpks_sessions\rslds_models_new\Mouse4_Day17_DLS_Spikes_rsldsSpks_rsldsModel_expand.npz",allow_pickle=True)
 rsldsData = loaded['rsldsData'].item()  # .item() gets the actual dictionary
 q_elbos = rsldsData['q_elbos']
 slds_expand = rsldsData['rslds_model']
@@ -776,7 +834,7 @@ norm_indices = (indices - indices.min()) / (indices.max() - indices.min())
 scatter_handles = []
 
 for k in range(num_states):
-    dynamics_matrix = np.squeeze(slds.dynamics.As[k, :, :])[:2, :2]
+    dynamics_matrix = np.squeeze(slds_expand.dynamics.As[k, :, :])
     eigenVal = eig(dynamics_matrix)
     x = np.real(eigenVal[0])
     y = np.imag(eigenVal[0])
@@ -1026,7 +1084,7 @@ filename = f"{fSave}_pull_aligned_state.pdf"
 plt.savefig(filename, format="pdf", bbox_inches="tight", transparent=True)
 plt.show()
 # %%
-dynamics_matrix = np.array([(0.9, 0),(0.0,.1)])
+dynamics_matrix = np.array([(.3, 0.1),(0.1,.1)])
 bias_vector = np.array([0,0])
 
 from scipy.linalg import eig
@@ -1061,11 +1119,11 @@ plt.show()
 num_states = slds_expand.dynamics.As.shape[2]
 fig= plt.subplots(1, 1, figsize=(6, 6))
 
-k = 2
+k = 0
 dynamics_matrix = np.squeeze(slds_expand.dynamics.As[k, :, :])[:2, :2]
 bias_vector = np.squeeze(slds_expand.dynamics.bs[k, :])[:2]
-dynamics_matrix = np.array([(0.99,0),(0,0.99)])
-bias_vector = [0,0]
+#dynamics_matrix = np.array([(0.99,0),(0,0.99)])
+#bias_vector = [0,0]
 x1_0, x2_0 = -60, -60
 x = np.array([x1_0, x2_0])
 trajectory = [x.copy()]
@@ -1094,3 +1152,4 @@ filename = f"{fSave}_state_flow.pdf"
 plt.show()
 
 # %%
+# Plot out the 
