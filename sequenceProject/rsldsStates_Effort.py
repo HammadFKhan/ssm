@@ -21,7 +21,8 @@ import h5py
 #loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\DLS\rslds_models\Day9_DLS_warpedSpks_rsldsModel.npz",allow_pickle=True)
 #loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\DLS\rslds_models\Day8_DLS_warpedSpks_rsldsModel.npz",allow_pickle=True)
 #loaded = np.load(r"D:\SQLever\Ephys\WarpedSpikes\M1\rslds_models\Day6_M1_warpedSpks_rsldsModel.npz",allow_pickle=True)
-filename = r"Y:\Hammad\Ephys\SeqProject\ForceField\rsldsSpks_sessions\rslds_models_new\Mouse4_Day16_DLS_Spikes_rsldsSpks_rsldsModel.npz"
+filename = r"Y:\Hammad\Ephys\SeqProject\ForceField\rsldsSpks_sessions\rslds_models_new\Mouse4_Day17_DLS_Spikes_rsldsSpks_rsldsModel.npz"
+#filename = r"Y:\Hammad\Ephys\SeqProject\ForceField\rsldsSpks_sessions\rslds_models_new_inputdriven\Mouse4_Day17_DLS_Spikes_rsldsSpks_rsldsModel.npz"
 loaded = np.load(filename,allow_pickle=True)
 
 print(list(loaded.keys()))
@@ -184,6 +185,7 @@ smoothed_spikes_standardized = scaler.fit_transform(binned_spike_data)
 
 pca = PCA(n_components=n_components)
 latent_dynamics = pca.fit_transform(smoothed_spikes_standardized)
+#latent_dynamics_trial = latent_dynamics.reshape(n_trials, num_timepoints_per_trial, n_components)
 
 # Get PC weights (loadings) for each neuron
 # In sklearn, components_ is of shape (n_components, n_features)
@@ -428,6 +430,8 @@ for s in range(n_states):
 for trial in range(n_trials):
     if isnoeffort[trial] == 0:  # Effort trial
         ax1.axvline(x=trial, color='black', alpha=0.1, linestyle='--')
+        if np.sum(~np.isnan(totalPullTimes[:, trial]))>1:
+            ax1.axvline(x=trial, color='blue', alpha=0.5, linestyle='--')
 
 ax1.set_ylabel("Mean state duration\n(% of trial)")
 ax1.set_title("State persistence across trials")
@@ -458,3 +462,198 @@ ax2.set_title("Cumulative number of effort trials")
 
 plt.tight_layout()
 plt.show()
+#%%
+# Mark pull times as a function of effort and non effort trials
+pull_non_effort = totalPullTimes[:, noeffort_mask]
+pull_effort = totalPullTimes[:, effort_mask]
+# now plot the pull times for effort and non effort trials
+plt.figure(figsize=(12, 6))
+plt.subplot(2, 1, 1)
+for trial in range(pull_non_effort.shape[1]):
+    pull_times = pull_non_effort[:, trial]
+    pull_times = pull_times[~np.isnan(pull_times)]
+    plt.scatter(pull_times, np.full_like(pull_times, trial), color='blue', label='No Effort' if trial == 0 else "", alpha=0.7)
+plt.title('Pull Times for No Effort Trials')
+plt.xlabel('Time (binned)')
+plt.ylabel('Trial Number')
+plt.legend()
+plt.subplot(2, 1, 2)
+for trial in range(pull_effort.shape[1]):
+    pull_times = pull_effort[:, trial]
+    pull_times = pull_times[~np.isnan(pull_times)]
+    plt.scatter(pull_times, np.full_like(pull_times, trial), color='red', label='Effort' if trial == 0 else "", alpha=0.7)
+plt.title('Pull Times for Effort Trials')
+plt.xlabel('Time (binned)')
+plt.ylabel('Trial Number')
+plt.legend()
+plt.tight_layout()
+plt.show()
+# %%
+# Plot out the fraction of effort trials that had a complete pull sequence (pull1, pull2, pull3) vs those that did not have a complete pull sequence for each trial
+complete_pull_effort = np.sum(~np.isnan(pull_effort), axis=0)
+plt.figure(figsize=(6, 6))
+plt.subplot(1, 1, 1)
+# show as pie chart
+labels = ['Complete Pull Sequence', 'Incomplete Pull Sequence']
+num_complete = np.sum(complete_pull_effort >1)
+num_incomplete = np.sum(complete_pull_effort == 1)
+plt.pie([num_complete, num_incomplete], labels=labels, autopct='%1.1f%%', colors=['red', 'gray'], startangle=90)
+plt.title('Fraction of Effort Trials with Complete Pull Sequence')
+plt.tight_layout()
+plt.show()
+
+# %% K-means clustering of initial condition on latent dynamics
+from sklearn.cluster import KMeans
+from mpl_toolkits.mplot3d import Axes3D
+# reshape latent_dynamics to be (n_trials, n_time, n_components)
+num_timepoints_per_trial = binned_spike_data.shape[0] // n_trials
+latent_dynamics_trial = latent_dynamics[:n_trials * num_timepoints_per_trial,:].reshape(n_trials, num_timepoints_per_trial,n_components)
+print(f"Latent dynamics shape (n_trials, n_time, n_components): {latent_dynamics_trial.shape}")
+
+initCondTimepoint = 45
+latentComp = 3
+# extract the initial condition for each trial at the specified timepoint
+init_conditions = latent_dynamics_trial[:, initCondTimepoint, :3]
+# perform k-means clustering on the initial conditions
+n_clusters = 3
+kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(init_conditions)
+cluster_labels = kmeans.labels_
+
+# Reduction of Variation analysis of kmeans
+from sklearn.metrics import silhouette_score
+silhouette_avg = silhouette_score(init_conditions, cluster_labels)
+print(f"Silhouette Score for K-means clustering: {silhouette_avg:.4f}")
+
+inertia = []
+for n in range(1, 11):
+    kmeans = KMeans(n_clusters=n, random_state=42)
+    kmeans.fit(init_conditions)
+    inertia.append(kmeans.inertia_)
+plt.figure(figsize=(5, 4))
+plt.plot(range(1, 11), inertia, marker='o')
+plt.title("Elbow Method for Optimal Number of Clusters")
+plt.xlabel("Number of Clusters")
+plt.ylabel("Inertia")
+plt.grid(True)
+plt.show()
+#%% plot the clusters in the space of the first 2 principal components
+fig = plt.figure(figsize=(8,8))
+ax = fig.add_subplot(111, projection='3d')
+for cluster in range(n_clusters):
+    cluster_points = init_conditions[cluster_labels == cluster]
+    ax.scatter(cluster_points[:, 0], cluster_points[:, 1], cluster_points[:, 2], 
+               label=f'Cluster {cluster}', alpha=0.9, s=80)
+
+ax.set_title(f'K-means Clustering of Initial Conditions at Timepoint {initCondTimepoint}')
+ax.set_xlabel('PC 1')
+ax.set_ylabel('PC 2')
+ax.set_zlabel('PC 3')
+ax.legend()
+plt.tight_layout()
+plt.show()
+#%%
+# sort latent dynamics by clusters and plot the average latent trajectory for each cluster
+cluster_latents = []
+cluster_leverTraces = []
+for cluster in range(n_clusters):
+    cluster_trials = np.where(cluster_labels == cluster)[0]
+    latent_dynamics_cluster = latent_dynamics_trial[cluster_trials]
+    leverTraces_cluster = leverTrace[cluster_trials]
+    cluster_leverTraces.append(leverTraces_cluster)
+    cluster_latents.append(latent_dynamics_cluster)
+
+plt.figure(figsize=(12, 6))
+for cluster in range(len(cluster_latents)):
+    for trial in range(cluster_latents[cluster].shape[0]):
+        ax = plt.subplot(1, len(cluster_latents), cluster+1)
+        ax.plot(cluster_latents[cluster][trial,:, 0], color='gray', alpha=0.5)
+        ax.plot(np.mean(cluster_latents[cluster][:,:, 0], axis=0), color='blue', label=f'Cluster {cluster}', alpha=0.9, linewidth=3)
+# plot out individual trial latent trajectories for each cluster in light color and the average trajectory for each cluster in bold color
+plt.figure(figsize=(12, 6))
+for cluster in range(len(cluster_latents)):
+    for trial in range(cluster_latents[cluster].shape[0]):
+        ax = plt.subplot(1, len(cluster_latents), cluster+1, projection='3d')
+        ax.plot(cluster_latents[cluster][trial,:, 0], cluster_latents[cluster][trial,:, 1], cluster_latents[cluster][trial,:, 2], color='gray', alpha=0.5)
+
+
+# plot out neural trajectories
+plt.figure(figsize=(6, 6))
+ax = plt.axes(projection='3d')
+for cluster in range(len(cluster_latents)):
+    mean_trajectory = np.mean(cluster_latents[cluster], axis=0)
+    ax.plot(mean_trajectory[:, 0], mean_trajectory[:, 1], mean_trajectory[:, 2], label=f'Cluster {cluster}', alpha=0.9, linewidth=3)
+ax.set_title(f'Average Latent Trajectory for Each Cluster')
+ax.set_xlabel('PC 1')
+ax.set_ylabel('PC 2')
+ax.set_zlabel('PC 3')
+ax.legend()
+plt.tight_layout()
+plt.show()
+# plot the average lever trace for each cluster with overlayed individual trial lever traces
+plt.figure(figsize=(12, 6))
+for cluster in range(len(cluster_leverTraces)):
+    mean_leverTrace = np.mean(cluster_leverTraces[cluster], axis=0)
+    plt.plot(mean_leverTrace, label=f'Cluster {cluster}', linewidth=3)
+plt.title('Average Lever Trace for Each Cluster')
+plt.xlabel('Time (binned)')
+plt.ylabel('Lever Position (normalized)')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# %%
+# Show percentage of effort trials in each cluster
+effort_fraction_per_cluster = []
+errort_trials_per_cluster = []
+for cluster in range(n_clusters):
+    cluster_trials = np.where(cluster_labels == cluster)[0]
+    effort_trials_in_cluster = np.sum(isnoeffort[cluster_trials] == 0)
+    errort_trials_per_cluster.append(effort_trials_in_cluster)
+    total_trials_in_cluster = len(cluster_trials)
+    fraction_effort = (effort_trials_in_cluster / total_trials_in_cluster) if total_trials_in_cluster > 0 else 0
+    effort_fraction_per_cluster.append(fraction_effort)
+# Plot as pie chart
+labels = [f'Cluster {i}' for i in range(n_clusters)]
+plt.figure(figsize=(6, 6))
+plt.pie(effort_fraction_per_cluster, labels=labels, autopct='%1.1f%%')
+plt.title('Fraction of Non Effort Trials in Each Cluster')
+plt.tight_layout()
+plt.show()
+print(errort_trials_per_cluster)
+
+labels = [f"Cluster {i}" for i in range(n_clusters)]
+effort = np.array(effort_fraction_per_cluster)
+non_effort = 1 - effort
+
+x = np.arange(len(labels))
+
+plt.figure(figsize=(6, 4))
+
+plt.bar(x, non_effort, label='Non-effort', color='tab:blue')
+plt.bar(x, effort, bottom=non_effort, label='Effort', color='tab:red')
+
+plt.xticks(x, labels)
+plt.ylabel("Fraction of trials")
+plt.ylim(0, 1)
+plt.title("Effort vs non-effort fraction per cluster")
+plt.legend()
+plt.tight_layout()
+plt.show()
+# %% Plot our rslds states as a function of the kmeans clusters to see if there is a relationship between the initial condition cluster and the rslds
+#  states
+plt.figure(figsize=(12, 6))
+for cluster in range(n_clusters):
+    cluster_trials = np.where(cluster_labels == cluster)[0]
+    for state in range(num_states):
+        ax = plt.subplot(1, n_clusters, cluster+1)
+        state_freq = np.mean(rslds_states[cluster_trials] == state, axis=0)
+        # smooth state_freq
+        state_freq = gaussian_filter1d(state_freq, sigma=5)
+        ax.plot(state_freq, label=f'State {state}')
+    ax.set_title(f'States as a Function of K-means Cluster {cluster}')
+    ax.set_xlabel('Time (binned)')
+plt.ylabel('State Frequency')
+plt.legend()
+plt.tight_layout()
+plt.show()
+# %%
